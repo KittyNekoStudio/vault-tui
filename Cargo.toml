@@ -1,0 +1,9 @@
+[package]
+name = "vault-tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "*"
+tui-textarea = "*"
+crossterm = "*"
