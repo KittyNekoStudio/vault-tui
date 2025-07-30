@@ -7,9 +7,15 @@ use std::{
 use crossterm::event::{self};
 use ratatui::{
     DefaultTerminal,
-    widgets::{Block, Borders},
+    layout::{Constraint, Direction, Flex, Layout, Rect},
+    style::Style,
+    widgets::{Block, Borders, Clear},
 };
 use tui_textarea::{Input, Key, TextArea};
+
+use crate::vim::{Mode, Transition, Vim};
+
+mod vim;
 
 fn main() -> io::Result<()> {
     let mut vault = Vault::new();
@@ -37,6 +43,7 @@ impl Vault<'_> {
     }
 
     fn run(&mut self) -> io::Result<()> {
+        let mut vim = Vim::new(Mode::Normal);
         if self.home.open {
             self.home
                 .textarea
@@ -52,42 +59,80 @@ impl Vault<'_> {
                 }
             })?;
 
-            match event::read()?.into() {
-                Input { key: Key::Esc, .. } => {
-                    if self.home.open {
-                        break;
-                    } else {
-                        self.home.open();
-                    }
-                },
-                Input {
-                    key: Key::Enter, ..
-                } => {
-                    if self.home.open {
+            if self.home.open {
+                match event::read()?.into() {
+                    Input { key: Key::Esc, .. } => break,
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
                         let (row, _) = self.home.textarea.cursor();
                         self.home.close();
 
                         let selected_file = self.file_paths[row].clone();
                         self.open_file(selected_file)?;
-                    } else {
-                        self.editor.textarea.input(Input {
-                            key: Key::Enter,
-                            ctrl: false,
-                            alt: false,
-                            shift: false,
-                        });
+                    }
+                    input => {
+                        self.home.textarea.input(input);
                     }
                 }
-                Input {
-                    key: Key::Char('s'),
-                    ctrl: true,
-                    ..
-                } => self.editor.save()?,
-                input => {
-                    if self.home.open {
-                        self.home.textarea.input(input);
-                    } else {
-                        self.editor.textarea.input(input);
+            } else {
+                vim = match vim.exec(event::read()?.into(), &mut self.editor.textarea) {
+                    Transition::Mode(mode) if vim.mode != mode => Vim::new(mode),
+                    Transition::Nop | Transition::Mode(_) => vim,
+                    Transition::Pending(input) => vim.with_pending(input),
+                    Transition::Command => {
+                        let mut command_area = TextArea::default();
+                        command_area.set_cursor_line_style(Style::default());
+
+                        loop {
+                            self.terminal
+                                .draw(|frame| {
+                                    command_area.set_block(Block::bordered().title("Command"));
+
+                                    // Determine the desired width and height for your text area
+                                    let command_area_width = 50;
+                                    let command_area_height = 3;
+
+                                    // Create a centered Rect for the text area
+                                    let area = center(
+                                        frame.area(),
+                                        Constraint::Length(command_area_width),
+                                        Constraint::Length(command_area_height),
+                                    );
+
+                                    frame.render_widget(&self.editor.textarea, frame.area());
+                                    frame.render_widget(Clear, area);
+                                    frame.render_widget(&command_area, area);
+                                })
+                                .unwrap();
+
+                            match event::read()?.into() {
+                                Input { key: Key::Esc, .. } => break,
+                                Input {
+                                    key: Key::Enter, ..
+                                } => {
+                                    let input = command_area.lines();
+                                    if input.len() == 1 {
+                                        let input = &input[0];
+                                        match input.as_str() {
+                                            "q" => {
+                                                self.home.open();
+                                                break;
+                                            },
+                                            "w" => {
+                                                self.editor.save()?;
+                                                break;
+                                            }
+                                            _ => break,
+                                        }
+                                    }
+                                }
+                                input => {
+                                    command_area.input(input);
+                                }
+                            }
+                        }
+                        Vim::new(Mode::Normal)
                     }
                 }
             }
@@ -204,4 +249,12 @@ fn get_all_filenames() -> io::Result<Vec<PathBuf>> {
     populate_filenames(&root_directory, &mut all_files)?;
 
     Ok(all_files)
+}
+
+fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
+    let [area] = Layout::horizontal([horizontal])
+        .flex(Flex::Center)
+        .areas(area);
+    let [area] = Layout::vertical([vertical]).flex(Flex::Center).areas(area);
+    area
 }
