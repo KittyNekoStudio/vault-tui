@@ -1,4 +1,8 @@
-use std::{fs::File, io::{self, BufRead, BufReader, BufWriter, Write}, path::PathBuf};
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader, BufWriter, Write},
+    path::PathBuf,
+};
 
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
@@ -47,4 +51,3 @@ impl Editor<'_> {
         Ok(())
     }
 }
-

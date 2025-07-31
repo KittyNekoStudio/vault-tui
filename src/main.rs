@@ -1,7 +1,7 @@
-mod vim;
 mod editor;
-mod vault;
 mod homepage;
+mod vault;
+mod vim;
 
 fn main() -> std::io::Result<()> {
     let mut vault = vault::Vault::new();

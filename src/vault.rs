@@ -1,10 +1,22 @@
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use crossterm::event;
-use ratatui::{layout::{Constraint, Flex, Layout, Rect}, style::Style, widgets::{Block, Borders, Clear}, DefaultTerminal};
+use ratatui::{
+    DefaultTerminal,
+    layout::{Constraint, Flex, Layout, Rect},
+    style::Style,
+    widgets::{Block, Borders, Clear},
+};
 use tui_textarea::{Input, Key, TextArea};
 
-use crate::{editor::Editor, homepage::HomePage, vim::{Mode, Transition, Vim}};
+use crate::{
+    editor::Editor,
+    homepage::HomePage,
+    vim::{Mode, Transition, Vim},
+};
 
 pub struct Vault<'a> {
     terminal: DefaultTerminal,
@@ -100,7 +112,7 @@ impl Vault<'_> {
                                             "q" => {
                                                 self.home.open();
                                                 break;
-                                            },
+                                            }
                                             "w" => {
                                                 self.editor.save()?;
                                                 break;
