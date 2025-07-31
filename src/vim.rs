@@ -1,8 +1,3 @@
-use ratatui::{
-    DefaultTerminal,
-    layout::{Constraint, Layout},
-    style::Style,
-};
 use tui_textarea::{CursorMove, Input, Key, Scrolling, TextArea};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,7 +5,6 @@ pub enum Mode {
     Insert,
     Normal,
     Visual,
-    Command,
     Operator(char),
 }
 
@@ -349,8 +343,6 @@ impl Vim {
                     Transition::Mode(Mode::Insert)
                 }
             },
-
-            Mode::Command => return Transition::Command,
         }
     }
 }
