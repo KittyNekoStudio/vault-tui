@@ -1,20 +1,32 @@
-use std::path::PathBuf;
+use std::{
+    io::{self, Error},
+    path::PathBuf,
+};
 
+use crossterm::event;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
+
+use crate::vim::{Mode, Transition, Vim};
 
 pub struct HomePage<'a> {
     pub textarea: TextArea<'a>,
     open: bool,
 }
 
+pub enum InputResult {
+    Quit,
+    Continue,
+    File(PathBuf),
+}
+
 impl HomePage<'_> {
-    pub fn new(filenames: &Vec<PathBuf>) -> Self {
-        let filenames = filenames
+    pub fn new(file_paths: &Vec<PathBuf>) -> Self {
+        let file_paths = file_paths
             .iter()
             .map(|name| name.clone().into_os_string().into_string().unwrap())
             .collect();
-        let mut textarea = TextArea::new(filenames);
+        let mut textarea = TextArea::new(file_paths);
         textarea.set_block(Block::default().borders(Borders::ALL));
         Self {
             textarea,
@@ -22,8 +34,8 @@ impl HomePage<'_> {
         }
     }
 
-    pub fn update_homepage_files(&mut self, filenames: &Vec<PathBuf>) {
-        *self = Self::new(filenames);
+    pub fn update_homepage_files(&mut self, file_paths: &Vec<PathBuf>) {
+        *self = Self::new(file_paths);
         self.open();
     }
 
@@ -37,5 +49,20 @@ impl HomePage<'_> {
 
     pub fn is_open(&self) -> bool {
         self.open
+    }
+
+    pub fn input(&mut self, file_paths: &Vec<PathBuf>) -> io::Result<InputResult> {
+        let mut vim = Vim::new(Mode::HomePage);
+
+        if let Transition::InputResult(input_result) =
+            vim.exec(event::read()?.into(), &mut self.textarea, file_paths)
+        {
+            return Ok(input_result);
+        } else {
+            return Err(Error::new(
+                io::ErrorKind::Other,
+                "failed to match input result",
+            ));
+        }
     }
 }

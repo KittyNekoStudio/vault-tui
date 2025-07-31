@@ -14,7 +14,7 @@ use tui_textarea::{Input, Key, TextArea};
 
 use crate::{
     editor::Editor,
-    homepage::HomePage,
+    homepage::{HomePage, InputResult},
     vim::{Mode, Transition, Vim},
 };
 
@@ -54,25 +54,22 @@ impl Vault<'_> {
             })?;
 
             if self.home.is_open() {
-                match event::read()?.into() {
-                    Input { key: Key::Esc, .. } => break,
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        let (row, _) = self.home.textarea.cursor();
+                match self.home.input(&self.file_paths)? {
+                    InputResult::Continue => continue,
+                    InputResult::File(filename) => {
                         self.home.close();
-
-                        let selected_file = self.file_paths[row].clone();
-                        self.open_file(selected_file)?;
+                        self.open_file(filename)?;
                     }
-                    input => {
-                        self.home.textarea.input(input);
-                    }
+                    InputResult::Quit => break,
                 }
             } else {
-                vim = match vim.exec(event::read()?.into(), &mut self.editor.textarea) {
+                vim = match vim.exec(
+                    event::read()?.into(),
+                    &mut self.editor.textarea,
+                    &self.file_paths,
+                ) {
                     Transition::Mode(mode) if vim.mode != mode => Vim::new(mode),
-                    Transition::Nop | Transition::Mode(_) => vim,
+                    Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => vim,
                     Transition::Pending(input) => vim.with_pending(input),
                     Transition::Command => {
                         let mut command_area = TextArea::default();
@@ -83,11 +80,9 @@ impl Vault<'_> {
                                 .draw(|frame| {
                                     command_area.set_block(Block::bordered().title("Command"));
 
-                                    // Determine the desired width and height for your text area
                                     let command_area_width = 50;
                                     let command_area_height = 3;
 
-                                    // Create a centered Rect for the text area
                                     let area = center(
                                         frame.area(),
                                         Constraint::Length(command_area_width),
@@ -160,7 +155,7 @@ fn get_all_filenames() -> io::Result<Vec<PathBuf>> {
     let args = std::env::args_os();
     let paths: Vec<String> = 'block: {
         let paths: Vec<String> = args.skip(1).map(|arg| arg.into_string().unwrap()).collect();
-        // If no dir provided use current dir 
+        // If no dir provided use current dir
         if paths.len() == 0 {
             break 'block vec![".".to_string()];
         }
