@@ -158,7 +158,14 @@ fn populate_filenames(current_path: &Path, files: &mut Vec<PathBuf>) -> io::Resu
 
 fn get_all_filenames() -> io::Result<Vec<PathBuf>> {
     let args = std::env::args_os();
-    let paths: Vec<String> = args.skip(1).map(|arg| arg.into_string().unwrap()).collect();
+    let paths: Vec<String> = 'block: {
+        let paths: Vec<String> = args.skip(1).map(|arg| arg.into_string().unwrap()).collect();
+        // If no dir provided use current dir 
+        if paths.len() == 0 {
+            break 'block vec![".".to_string()];
+        }
+        paths
+    };
     let root_directory = PathBuf::from(&paths[0]);
 
     let mut all_files: Vec<PathBuf> = Vec::new();
