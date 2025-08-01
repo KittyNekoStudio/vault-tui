@@ -41,22 +41,7 @@ impl Vault<'_> {
         }
     }
 
-    fn sort_file_paths(&mut self) {
-        self.file_paths.sort_by(|a, b| {
-            let metadata_a = fs::metadata(a).and_then(|m| m.created());
-            let metadata_b = fs::metadata(b).and_then(|m| m.created());
-
-            match (metadata_a, metadata_b) {
-                (Ok(time_a), Ok(time_b)) => time_a.cmp(&time_b),
-                (Ok(_), Err(_)) => std::cmp::Ordering::Less, 
-                (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
-                (Err(_), Err(_)) => std::cmp::Ordering::Equal,
-            }
-        });
-    }
-
     pub fn run(&mut self) -> io::Result<()> {
-        self.sort_file_paths();
         let mut vim = Vim::new(Mode::Normal);
 
         loop {
@@ -66,7 +51,6 @@ impl Vault<'_> {
 
             match &mut self.buffers[self.current_buf] {
                 Buffer::HomePage(homepage) => {
-                    //homepage.update_homepage_files(self.file_paths.last().unwrap().to_path_buf());
                     match homepage.input(&self.file_paths)? {
                         InputResult::Continue => continue,
                         InputResult::File(filename) => {
@@ -297,7 +281,6 @@ impl Vault<'_> {
                     let pathbuf = PathBuf::from(&input[0]);
                     
                     self.file_paths.push(pathbuf.clone());
-                    self.sort_file_paths();
 
                     File::create(&pathbuf)?;
                     self.open_file(pathbuf)?;
@@ -350,7 +333,14 @@ fn populate_filenames(current_path: &Path, files: &mut Vec<PathBuf>) -> io::Resu
             if entry_path.is_dir() {
                 populate_filenames(&entry_path, files)?;
             } else if entry_path.is_file() {
-                files.push(entry_path);
+                let path = 'block: {
+                    let path = entry_path.strip_prefix(".");
+                    if path.is_err() {
+                        break 'block entry_path.strip_prefix("/").unwrap();
+                    }
+                    path.unwrap()
+                };
+                files.push(path.to_path_buf());
             }
         }
     }
