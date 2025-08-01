@@ -7,6 +7,7 @@ use std::{
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
+#[derive(Clone, Debug)]
 pub struct Editor<'a> {
     pub textarea: TextArea<'a>,
     path: PathBuf,

@@ -538,6 +538,25 @@ impl Vim {
                 InputResult::Continue
             }
             Input {
+                key: Key::Char('/'),
+                ..
+            } => {
+                return InputResult::Search(Search::Open);
+            }
+            Input {
+                key: Key::Char('n'),
+                shift: false,
+                ..
+            } => {
+                return InputResult::Search(Search::Forward);
+            }
+            Input {
+                key: Key::Char('N'),
+                ..
+            } => {
+                return InputResult::Search(Search::Backward);
+            }
+            Input {
                 key: Key::Enter, ..
             } => {
                 let (row, _) = textarea.cursor();

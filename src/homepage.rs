@@ -7,17 +7,18 @@ use crossterm::event;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
-use crate::vim::{Mode, Transition, Vim};
+use crate::vim::{Mode, Search, Transition, Vim};
 
+#[derive(Clone, Debug)]
 pub struct HomePage<'a> {
     pub textarea: TextArea<'a>,
-    open: bool,
 }
 
 pub enum InputResult {
     Quit,
     Continue,
     File(PathBuf),
+    Search(Search),
 }
 
 impl HomePage<'_> {
@@ -28,27 +29,11 @@ impl HomePage<'_> {
             .collect();
         let mut textarea = TextArea::new(file_paths);
         textarea.set_block(Block::default().borders(Borders::ALL));
-        Self {
-            textarea,
-            open: true,
-        }
+        Self { textarea }
     }
 
     pub fn update_homepage_files(&mut self, file_paths: &Vec<PathBuf>) {
         *self = Self::new(file_paths);
-        self.open();
-    }
-
-    pub fn open(&mut self) {
-        self.open = true;
-    }
-
-    pub fn close(&mut self) {
-        self.open = false;
-    }
-
-    pub fn is_open(&self) -> bool {
-        self.open
     }
 
     pub fn input(&mut self, file_paths: &Vec<PathBuf>) -> io::Result<InputResult> {
