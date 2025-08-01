@@ -15,6 +15,7 @@ use tui_textarea::{Input, Key, TextArea};
 
 use crate::{
     buffer::Buffer,
+    command::Command,
     homepage::InputResult,
     vim::{Mode, Search, Transition, Vim},
 };
@@ -40,12 +41,23 @@ impl Vault<'_> {
         }
     }
 
-    pub fn run(&mut self) -> io::Result<()> {
-        let mut vim = Vim::new(Mode::Normal);
+    fn sort_file_paths(&mut self) {
+        self.file_paths.sort_by(|a, b| {
+            let metadata_a = fs::metadata(a).and_then(|m| m.created());
+            let metadata_b = fs::metadata(b).and_then(|m| m.created());
 
-        if let Buffer::HomePage(homepage) = &mut self.buffers[0] {
-            homepage.update_homepage_files(&self.file_paths);
-        }
+            match (metadata_a, metadata_b) {
+                (Ok(time_a), Ok(time_b)) => time_a.cmp(&time_b),
+                (Ok(_), Err(_)) => std::cmp::Ordering::Less, 
+                (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                (Err(_), Err(_)) => std::cmp::Ordering::Equal,
+            }
+        });
+    }
+
+    pub fn run(&mut self) -> io::Result<()> {
+        self.sort_file_paths();
+        let mut vim = Vim::new(Mode::Normal);
 
         loop {
             self.terminal.draw(|frame| {
@@ -53,37 +65,40 @@ impl Vault<'_> {
             })?;
 
             match &mut self.buffers[self.current_buf] {
-                Buffer::HomePage(homepage) => match homepage.input(&self.file_paths)? {
-                    InputResult::Continue => continue,
-                    InputResult::File(filename) => {
-                        self.open_file(filename)?;
+                Buffer::HomePage(homepage) => {
+                    //homepage.update_homepage_files(self.file_paths.last().unwrap().to_path_buf());
+                    match homepage.input(&self.file_paths)? {
+                        InputResult::Continue => continue,
+                        InputResult::File(filename) => {
+                            self.open_file(filename)?;
+                        }
+                        InputResult::Search(search) => match search {
+                            Search::Open => {
+                                let previous_search = {
+                                    if homepage.textarea.search_pattern().is_some() {
+                                        homepage
+                                            .textarea
+                                            .search_pattern()
+                                            .unwrap()
+                                            .as_str()
+                                            .to_string()
+                                    } else {
+                                        "".to_string()
+                                    }
+                                };
+                                self.render_search_area(previous_search)?;
+                            }
+                            Search::Forward => {
+                                homepage.textarea.search_forward(false);
+                            }
+                            Search::Backward => {
+                                homepage.textarea.search_back(false);
+                            }
+                        },
+                        InputResult::Command => _ = self.render_command_area()?,
+                        InputResult::Quit => break,
                     }
-                    InputResult::Search(search) => match search {
-                        Search::Open => {
-                            let previous_search = {
-                                if homepage.textarea.search_pattern().is_some() {
-                                    homepage
-                                        .textarea
-                                        .search_pattern()
-                                        .unwrap()
-                                        .as_str()
-                                        .to_string()
-                                } else {
-                                    "".to_string()
-                                }
-                            };
-                            self.render_search_area(previous_search)?;
-                        }
-                        Search::Forward => {
-                            homepage.textarea.search_forward(false);
-                        }
-                        Search::Backward => {
-                            homepage.textarea.search_back(false);
-                        }
-                    },
-                    InputResult::Command => _ = self.render_command_area()?,
-                    InputResult::Quit => break,
-                },
+                }
                 Buffer::Editor(editor) => {
                     // TODO: switch back to event::read but the long line was messing up formating
                     vim = match vim.exec(read()?.into(), &mut editor.textarea, &self.file_paths) {
@@ -168,50 +183,18 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match &mut self.buffers[self.current_buf] {
-                Buffer::Editor(editor) => match read()?.into() {
-                    Input { key: Key::Esc, .. } => break,
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        let input = command_area.lines();
-                        if input.len() == 1 {
-                            let input = &input[0];
-                            match input.as_str() {
-                                "q" => {
-                                    self.current_buf = 0;
-                                    break;
-                                }
-                                "w" => {
-                                    editor.save()?;
-                                    break;
-                                }
-                                _ => break,
-                            }
-                        }
-                    }
-                    input => {
-                        command_area.input(input);
-                    }
-                },
-                Buffer::HomePage(_) => match read()?.into() {
-                    Input { key: Key::Esc, .. } => break,
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        let input = command_area.lines();
-                        match input[0].as_str() {
-                            "new note" => {
-                                self.new_note()?;
-                                break;
-                            }
-                            _ => (),
-                        }
-                    }
-                    input => {
-                        command_area.input(input);
-                    }
-                },
+            match read()?.into() {
+                Input { key: Key::Esc, .. } => break,
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    let input = command_area.lines();
+                    self.exec_command(Command::str_to_command(&input[0]))?;
+                    break;
+                }
+                input => {
+                    command_area.input(input);
+                }
             }
         }
 
@@ -311,14 +294,47 @@ impl Vault<'_> {
                     key: Key::Enter, ..
                 } => {
                     let input = note_name_input.lines();
-                    File::create(&input[0])?;
-                    self.open_file(PathBuf::from(&input[0]))?;
+                    let pathbuf = PathBuf::from(&input[0]);
+                    
+                    self.file_paths.push(pathbuf.clone());
+                    self.sort_file_paths();
+
+                    File::create(&pathbuf)?;
+                    self.open_file(pathbuf)?;
+
+                    if let Buffer::HomePage(homepage) = &mut self.buffers[0] {
+                        homepage.update_homepage_files(&self.file_paths);
+                    }
                     break;
                 }
+                Input { key: Key::Esc, .. } => break,
                 input => {
                     note_name_input.input(input);
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    fn exec_command(&mut self, command: Command) -> io::Result<()> {
+        match command {
+            Command::Quit => self.current_buf = 0,
+            Command::Save => {
+                if let Buffer::Editor(editor) = &self.buffers[self.current_buf] {
+                    editor.save()?;
+                }
+            }
+            Command::SaveQuit => {
+                if let Buffer::Editor(editor) = &self.buffers[self.current_buf] {
+                    self.current_buf = 0;
+                    editor.save()?;
+                }
+            }
+            Command::NewNote => {
+                self.new_note()?;
+            }
+            Command::None => (),
         }
 
         Ok(())
