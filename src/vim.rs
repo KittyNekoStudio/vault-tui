@@ -19,6 +19,13 @@ pub enum Transition {
     Pending(Input),
     InputResult(InputResult),
     Command,
+    Search(Search),
+}
+
+pub enum Search {
+    Open,
+    Forward,
+    Backward,
 }
 
 pub struct Vim {
@@ -224,6 +231,15 @@ impl Vim {
                         ctrl: true,
                         ..
                     } => textarea.scroll(Scrolling::PageUp),
+                    Input { key: Key::Char('/'), .. } => {
+                        return Transition::Search(Search::Open);
+                    }
+                    Input { key: Key::Char('n'), shift: false, .. } => {
+                        return Transition::Search(Search::Forward);
+                    }
+                    Input { key: Key::Char('N'), .. } => {
+                        return Transition::Search(Search::Backward);
+                    }
                     Input {
                         key: Key::Char('v'),
                         ctrl: false,

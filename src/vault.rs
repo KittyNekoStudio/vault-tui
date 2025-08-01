@@ -3,19 +3,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crossterm::event;
+use crossterm::event::read;
 use ratatui::{
     DefaultTerminal,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     style::Style,
-    widgets::{Block, Borders, Clear},
+    widgets::{Block, Borders},
 };
 use tui_textarea::{Input, Key, TextArea};
 
 use crate::{
     editor::Editor,
     homepage::{HomePage, InputResult},
-    vim::{Mode, Transition, Vim},
+    vim::{Mode, Search, Transition, Vim},
 };
 
 pub struct Vault<'a> {
@@ -63,66 +63,38 @@ impl Vault<'_> {
                     InputResult::Quit => break,
                 }
             } else {
-                vim = match vim.exec(
-                    event::read()?.into(),
-                    &mut self.editor.textarea,
-                    &self.file_paths,
-                ) {
+                // TODO: switch back to event::read but the long line was messing up formating
+                vim = match vim.exec(read()?.into(), &mut self.editor.textarea, &self.file_paths) {
                     Transition::Mode(mode) if vim.mode != mode => Vim::new(mode),
                     Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => vim,
                     Transition::Pending(input) => vim.with_pending(input),
-                    Transition::Command => {
-                        let mut command_area = TextArea::default();
-                        command_area.set_cursor_line_style(Style::default());
-
-                        loop {
-                            self.terminal
-                                .draw(|frame| {
-                                    command_area.set_block(Block::bordered().title("Command"));
-
-                                    let command_area_width = 50;
-                                    let command_area_height = 3;
-
-                                    let area = center(
-                                        frame.area(),
-                                        Constraint::Length(command_area_width),
-                                        Constraint::Length(command_area_height),
-                                    );
-
-                                    frame.render_widget(&self.editor.textarea, frame.area());
-                                    frame.render_widget(Clear, area);
-                                    frame.render_widget(&command_area, area);
-                                })
-                                .unwrap();
-
-                            match event::read()?.into() {
-                                Input { key: Key::Esc, .. } => break,
-                                Input {
-                                    key: Key::Enter, ..
-                                } => {
-                                    let input = command_area.lines();
-                                    if input.len() == 1 {
-                                        let input = &input[0];
-                                        match input.as_str() {
-                                            "q" => {
-                                                self.home.open();
-                                                break;
-                                            }
-                                            "w" => {
-                                                self.editor.save()?;
-                                                break;
-                                            }
-                                            _ => break,
-                                        }
-                                    }
+                    Transition::Command => self.render_command_area()?,
+                    Transition::Search(search) => match search {
+                        Search::Open => {
+                            let previous_search = {
+                                if self.editor.textarea.search_pattern().is_some() {
+                                    self.editor
+                                        .textarea
+                                        .search_pattern()
+                                        .unwrap()
+                                        .as_str()
+                                        .to_string()
+                                } else {
+                                    "".to_string()
                                 }
-                                input => {
-                                    command_area.input(input);
-                                }
-                            }
+                            };
+                            self.render_search_area(previous_search)?;
+                            vim
                         }
-                        Vim::new(Mode::Normal)
-                    }
+                        Search::Forward => {
+                            self.editor.textarea.search_forward(false);
+                            vim
+                        }
+                        Search::Backward => {
+                            self.editor.textarea.search_back(false);
+                            vim
+                        }
+                    },
                 }
             }
         }
@@ -132,6 +104,124 @@ impl Vault<'_> {
 
     fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
         self.editor.open(path)
+    }
+
+    fn render_command_area(&mut self) -> io::Result<Vim> {
+        let mut command_area = TextArea::default();
+        command_area.set_cursor_line_style(Style::default());
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    command_area.set_block(Block::bordered().title("Command"));
+
+                    let layout = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints(
+                            [
+                                // Layout for command area
+                                // As tall as the cursor
+                                Constraint::Length(3),
+                                // The area for the editor
+                                // Takes up the rest of the area
+                                Constraint::Min(1),
+                            ]
+                            .as_ref(),
+                        );
+
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&command_area, chunks[0]);
+                    frame.render_widget(&self.editor.textarea, chunks[1]);
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input { key: Key::Esc, .. } => break,
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    let input = command_area.lines();
+                    if input.len() == 1 {
+                        let input = &input[0];
+                        match input.as_str() {
+                            "q" => {
+                                self.home.open();
+                                break;
+                            }
+                            "w" => {
+                                self.editor.save()?;
+                                break;
+                            }
+                            _ => break,
+                        }
+                    }
+                }
+                input => {
+                    command_area.input(input);
+                }
+            }
+        }
+        Ok(Vim::new(Mode::Normal))
+    }
+
+    fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
+        let mut search_area = TextArea::default();
+        search_area.set_cursor_line_style(Style::default());
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    search_area.set_block(Block::bordered().title("Search"));
+
+                    let layout = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints(
+                            [
+                                // Layout for search area
+                                // As tall as the cursor
+                                Constraint::Length(3),
+                                // The area for the editor
+                                // Takes up the rest of the area
+                                Constraint::Min(1),
+                            ]
+                            .as_ref(),
+                        );
+
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&search_area, chunks[0]);
+                    frame.render_widget(&self.editor.textarea, chunks[1]);
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    self.editor.textarea.search_forward(true);
+                    break;
+                }
+                Input { key: Key::Esc, .. } => {
+                    self.editor
+                        .textarea
+                        .set_search_pattern(previous_search)
+                        .unwrap();
+                    break;
+                }
+                input => {
+                    search_area.input(input);
+                    let lines = search_area.lines();
+                    self.editor
+                        .textarea
+                        .set_search_pattern(lines[0].clone())
+                        .unwrap();
+                    self.editor.textarea.search_forward(true);
+                }
+            }
+        }
+        search_area.set_search_pattern("").unwrap();
+        Ok(Vim::new(Mode::Normal))
     }
 }
 
@@ -167,12 +257,4 @@ fn get_all_filenames() -> io::Result<Vec<PathBuf>> {
     populate_filenames(&root_directory, &mut all_files)?;
 
     Ok(all_files)
-}
-
-fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
-    let [area] = Layout::horizontal([horizontal])
-        .flex(Flex::Center)
-        .areas(area);
-    let [area] = Layout::vertical([vertical]).flex(Flex::Center).areas(area);
-    area
 }
