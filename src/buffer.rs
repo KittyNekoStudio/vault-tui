@@ -16,7 +16,7 @@ impl Buffer<'_> {
     }
 
     pub fn new_editor() -> Self {
-        Buffer::Editor(Editor::default())
+        Buffer::Editor(Editor::new())
     }
 
     pub fn textarea(&mut self) -> &TextArea {

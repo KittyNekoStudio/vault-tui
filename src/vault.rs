@@ -1,5 +1,6 @@
 use std::{
-    fs, io,
+    fs::{self, File},
+    io::{self},
     path::{Path, PathBuf},
 };
 
@@ -8,7 +9,7 @@ use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout},
     style::Style,
-    widgets::{Block, Borders},
+    widgets::Block,
 };
 use tui_textarea::{Input, Key, TextArea};
 
@@ -43,9 +44,6 @@ impl Vault<'_> {
         let mut vim = Vim::new(Mode::Normal);
 
         if let Buffer::HomePage(homepage) = &mut self.buffers[0] {
-            homepage
-                .textarea
-                .set_block(Block::default().borders(Borders::ALL));
             homepage.update_homepage_files(&self.file_paths);
         }
 
@@ -83,6 +81,7 @@ impl Vault<'_> {
                             homepage.textarea.search_back(false);
                         }
                     },
+                    InputResult::Command => _ = self.render_command_area()?,
                     InputResult::Quit => break,
                 },
                 Buffer::Editor(editor) => {
@@ -141,38 +140,36 @@ impl Vault<'_> {
     }
 
     fn render_command_area(&mut self) -> io::Result<Vim> {
-        let current = &mut self.buffers[self.current_buf];
         let mut command_area = TextArea::default();
         command_area.set_cursor_line_style(Style::default());
+        command_area.set_block(Block::bordered().title("Command"));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    // Layout for command area
+                    // As tall as the cursor
+                    Constraint::Length(3),
+                    // The area for the editor
+                    // Takes up the rest of the area
+                    Constraint::Min(1),
+                ]
+                .as_ref(),
+            );
 
         loop {
             self.terminal
                 .draw(|frame| {
-                    command_area.set_block(Block::bordered().title("Command"));
-
-                    let layout = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints(
-                            [
-                                // Layout for command area
-                                // As tall as the cursor
-                                Constraint::Length(3),
-                                // The area for the editor
-                                // Takes up the rest of the area
-                                Constraint::Min(1),
-                            ]
-                            .as_ref(),
-                        );
-
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&command_area, chunks[0]);
-                    frame.render_widget(current.textarea(), chunks[1]);
+                    frame.render_widget(self.buffers[self.current_buf].textarea(), chunks[1]);
                 })
                 .unwrap();
 
-            if let Buffer::Editor(editor) = current {
-                match read()?.into() {
+            match &mut self.buffers[self.current_buf] {
+                Buffer::Editor(editor) => match read()?.into() {
                     Input { key: Key::Esc, .. } => break,
                     Input {
                         key: Key::Enter, ..
@@ -196,40 +193,60 @@ impl Vault<'_> {
                     input => {
                         command_area.input(input);
                     }
-                }
+                },
+                Buffer::HomePage(_) => match read()?.into() {
+                    Input { key: Key::Esc, .. } => break,
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
+                        let input = command_area.lines();
+                        match input[0].as_str() {
+                            "new note" => {
+                                self.new_note()?;
+                                break;
+                            }
+                            _ => (),
+                        }
+                    }
+                    input => {
+                        command_area.input(input);
+                    }
+                },
             }
         }
+
         Ok(Vim::new(Mode::Normal))
     }
 
     fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
-        let mut search_area = TextArea::default();
-        search_area.set_cursor_line_style(Style::default());
         let current = &mut self.buffers[self.current_buf];
         let textarea = match current {
             Buffer::Editor(editor) => &mut editor.textarea,
             Buffer::HomePage(homepage) => &mut homepage.textarea,
         };
 
+        let mut search_area = TextArea::default();
+        search_area.set_cursor_line_style(Style::default());
+
+        search_area.set_block(Block::bordered().title("Search"));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    // Layout for search area
+                    // As tall as the cursor
+                    Constraint::Length(3),
+                    // The area for the editor
+                    // Takes up the rest of the area
+                    Constraint::Min(1),
+                ]
+                .as_ref(),
+            );
+
         loop {
             self.terminal
                 .draw(|frame| {
-                    search_area.set_block(Block::bordered().title("Search"));
-
-                    let layout = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints(
-                            [
-                                // Layout for search area
-                                // As tall as the cursor
-                                Constraint::Length(3),
-                                // The area for the editor
-                                // Takes up the rest of the area
-                                Constraint::Min(1),
-                            ]
-                            .as_ref(),
-                        );
-
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&search_area, chunks[0]);
@@ -258,6 +275,53 @@ impl Vault<'_> {
         }
         search_area.set_search_pattern("").unwrap();
         Ok(Vim::new(Mode::Normal))
+    }
+
+    fn new_note(&mut self) -> io::Result<()> {
+        let mut note_name_input = TextArea::default();
+        note_name_input.set_cursor_line_style(Style::default());
+        note_name_input.set_block(Block::bordered().title("Note Name"));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    // Layout for note name area
+                    // As tall as the cursor
+                    Constraint::Length(3),
+                    // The area for the editor
+                    // Takes up the rest of the area
+                    Constraint::Min(1),
+                ]
+                .as_ref(),
+            );
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&note_name_input, chunks[0]);
+                    frame.render_widget(self.buffers[self.current_buf].textarea(), chunks[1]);
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    let input = note_name_input.lines();
+                    File::create(&input[0])?;
+                    self.open_file(PathBuf::from(&input[0]))?;
+                    break;
+                }
+                input => {
+                    note_name_input.input(input);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

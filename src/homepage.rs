@@ -17,6 +17,7 @@ pub struct HomePage<'a> {
 pub enum InputResult {
     Quit,
     Continue,
+    Command,
     File(PathBuf),
     Search(Search),
 }

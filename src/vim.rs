@@ -374,58 +374,7 @@ impl Vim {
                     Transition::Mode(Mode::Insert)
                 }
             },
-            Mode::HomePage => {
-                match input {
-                    Input {
-                        key: Key::Char('h'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::Back),
-                    Input {
-                        key: Key::Char('j'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::Down),
-                    Input {
-                        key: Key::Char('k'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::Up),
-                    Input {
-                        key: Key::Char('l'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::Forward),
-                    Input {
-                        key: Key::Char('w'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::WordForward),
-                    Input {
-                        key: Key::Char('e'),
-                        ctrl: false,
-                        ..
-                    } => {
-                        textarea.move_cursor(CursorMove::WordEnd);
-                        if matches!(self.mode, Mode::Operator(_)) {
-                            textarea.move_cursor(CursorMove::Forward); // Include the text under the cursor
-                        }
-                    }
-                    Input {
-                        key: Key::Char('b'),
-                        ctrl: false,
-                        ..
-                    } => textarea.move_cursor(CursorMove::WordBack),
-                    Input {
-                        key: Key::Char('^'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::Head),
-                    Input {
-                        key: Key::Char('$'),
-                        ..
-                    } => textarea.move_cursor(CursorMove::End),
-                    input => return Transition::Pending(input),
-                }
-
-                match self.mode {
-                    _ => Transition::Nop,
-                }
-            }
+            Mode::HomePage => Transition::Nop,
         }
     }
 
@@ -490,6 +439,10 @@ impl Vim {
                 textarea.move_cursor(CursorMove::WordBack);
                 InputResult::Continue
             }
+            Input {
+                key: Key::Char(':'),
+                ..
+            } => InputResult::Command,
             Input {
                 key: Key::Char('^'),
                 ..

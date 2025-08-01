@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use ratatui::widgets::{Block, Borders};
+use ratatui::style::Style;
 use tui_textarea::TextArea;
 
 #[derive(Clone, Debug)]
@@ -13,18 +13,18 @@ pub struct Editor<'a> {
     path: PathBuf,
 }
 
-impl Default for Editor<'_> {
-    fn default() -> Self {
-        let mut textarea = TextArea::default();
-        textarea.set_block(Block::default().borders(Borders::ALL));
+impl Editor<'_> {
+    pub fn new() -> Self {
         Self {
-            textarea,
+            textarea: TextArea::default(),
             path: PathBuf::default(),
         }
     }
-}
 
-impl Editor<'_> {
+    fn style(&mut self) {
+        self.textarea.set_line_number_style(Style::default());
+    }
+
     pub fn open(&mut self, path: PathBuf) -> io::Result<()> {
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
@@ -38,6 +38,8 @@ impl Editor<'_> {
 
         self.textarea = TextArea::new(lines);
         self.path = path;
+
+        self.style();
 
         Ok(())
     }
