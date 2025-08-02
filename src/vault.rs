@@ -25,7 +25,7 @@ use crate::{
 pub struct Vault<'a> {
     terminal: DefaultTerminal,
     current_buf: PathBuf,
-    // TODO: Change to hashmap of key: PathBuf value: Buffer
+    previous_buf: PathBuf,
     buffers: HashMap<PathBuf, Buffer<'a>>,
     file_paths: Vec<PathBuf>,
 }
@@ -42,6 +42,7 @@ impl Vault<'_> {
         Vault {
             terminal: ratatui::init(),
             current_buf: PathBuf::from("vault-homepage"),
+            previous_buf: PathBuf::from("vault-homepage"),
             buffers: hashmap,
             file_paths,
         }
@@ -88,6 +89,7 @@ impl Vault<'_> {
                         }
                     },
                     InputResult::Command => _ = self.render_command_area()?,
+                    InputResult::CommandExec(command) => self.exec_command(command)?,
                     InputResult::Quit => break,
                 },
                 Buffer::Editor(editor) => {
@@ -136,6 +138,7 @@ impl Vault<'_> {
     }
 
     fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
+        self.previous_buf = self.current_buf.clone();
         if self.buffers.contains_key(&path) {
             self.current_buf = path;
             return Ok(());
@@ -325,7 +328,11 @@ impl Vault<'_> {
 
     fn exec_command(&mut self, command: Command) -> io::Result<()> {
         match command {
-            Command::Quit => self.current_buf = PathBuf::from("vault-homepage"),
+            Command::Quit => {
+                let current_buf = self.current_buf.clone();
+                self.current_buf = PathBuf::from("vault-homepage");
+                self.previous_buf = current_buf;
+            }
             Command::Save => {
                 if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
                     editor.save()?;
@@ -333,7 +340,9 @@ impl Vault<'_> {
             }
             Command::SaveQuit => {
                 if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
+                    let current_buf = self.current_buf.clone();
                     self.current_buf = PathBuf::from("vault-homepage");
+                    self.previous_buf = current_buf;
                     editor.save()?;
                 }
             }
@@ -362,6 +371,11 @@ impl Vault<'_> {
                         self.open_file(PathBuf::from(filename.to_string() + ".md"))?;
                     }
                 }
+            }
+            Command::PreviousBuf => {
+                let current_buf = self.current_buf.clone();
+                self.current_buf = self.previous_buf.clone();
+                self.previous_buf = current_buf;
             }
             Command::None => (),
         }

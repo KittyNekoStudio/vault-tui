@@ -4,6 +4,7 @@ pub enum Command {
     SaveQuit,
     NewNote,
     FollowLink,
+    PreviousBuf,
     None,
 }
 
@@ -15,6 +16,7 @@ impl Command {
             "wq" => Command::SaveQuit,
             "nn" | "new note" => Command::NewNote,
             "follow" | "follow link" | "fl" => Command::FollowLink,
+            "previous buf" | "prevb" | "pb" => Command::PreviousBuf,
             _ => Command::None,
         }
     }

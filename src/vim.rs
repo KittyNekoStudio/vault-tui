@@ -177,6 +177,9 @@ impl Vim {
                         textarea.move_cursor(CursorMove::End);
                         return Transition::Mode(Mode::Insert);
                     }
+                    Input { key: Key::Char('o'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::PreviousBuf);
+                    }
                     Input {
                         key: Key::Char('o'),
                         ..
@@ -447,6 +450,9 @@ impl Vim {
                 key: Key::Char(':'),
                 ..
             } => InputResult::Command,
+            Input { key: Key::Char('o'), ctrl: true, .. } => {
+                return InputResult::CommandExec(Command::PreviousBuf);
+            }
             Input {
                 key: Key::Char('^'),
                 ..
