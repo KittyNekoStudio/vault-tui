@@ -33,7 +33,7 @@ pub struct Vault<'a> {
 
 impl Vault<'_> {
     pub fn new<'a>() -> Vault<'a> {
-        let file_paths = get_all_filenames().unwrap();
+        let file_paths = get_all_filenames(false).unwrap();
         let mut hashmap = HashMap::new();
         hashmap.insert(
             PathBuf::from("vault-homepage"),
@@ -52,6 +52,20 @@ impl Vault<'_> {
 
     pub fn run(&mut self) -> io::Result<()> {
         let mut vim = Vim::new(Mode::Normal);
+
+        // When provided with a file instead of a dir
+        // Open the file then update self.file_paths and the homepage with pwd
+        if self.file_paths.len() == 1 {
+            self.open_file(self.file_paths[0].clone())?;
+            self.file_paths = get_all_filenames(true).unwrap();
+            if let Buffer::HomePage(homepage) = &mut self
+                .buffers
+                .get_mut(&PathBuf::from("vault-homepage"))
+                .unwrap()
+            {
+                homepage.update_homepage_files(&self.file_paths);
+            }
+        }
 
         while self.run {
             self.terminal.draw(|frame| {
@@ -405,16 +419,18 @@ fn populate_filenames(current_path: &Path, files: &mut Vec<PathBuf>) -> io::Resu
                 files.push(path.to_path_buf());
             }
         }
+    } else if current_path.is_file() {
+        files.push(current_path.to_path_buf());
     }
     Ok(())
 }
 
-fn get_all_filenames() -> io::Result<Vec<PathBuf>> {
+fn get_all_filenames(use_current_dir: bool) -> io::Result<Vec<PathBuf>> {
     let args = std::env::args_os();
     let paths: Vec<String> = 'block: {
         let paths: Vec<String> = args.skip(1).map(|arg| arg.into_string().unwrap()).collect();
         // If no dir provided use current dir
-        if paths.len() == 0 {
+        if paths.len() == 0 || use_current_dir {
             break 'block vec![".".to_string()];
         }
         paths
