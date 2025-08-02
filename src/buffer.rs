@@ -19,7 +19,7 @@ impl Buffer<'_> {
         Buffer::Editor(Editor::new())
     }
 
-    pub fn textarea(&mut self) -> &TextArea {
+    pub fn textarea(&self) -> &TextArea {
         match self {
             Buffer::Editor(editor) => &editor.textarea,
             Buffer::HomePage(homepage) => &homepage.textarea,

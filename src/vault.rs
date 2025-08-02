@@ -165,8 +165,40 @@ impl Vault<'_> {
         if let Buffer::Editor(editor) = self.buffers.get_mut(&self.current_buf).unwrap() {
             editor.open(path)
         } else {
-            Err(io::Error::new(io::ErrorKind::Other, "Not an editor"))
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Not an editor in open_file",
+            ))
         }
+    }
+
+    fn open_template(path: PathBuf) -> io::Result<Buffer<'static>> {
+        let editor = Buffer::new_editor();
+        if let Buffer::Editor(mut editor) = editor {
+            editor.open(path)?;
+            Ok(Buffer::Editor(editor))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Not an editor in open_template",
+            ))
+        }
+    }
+
+    fn close_buffer(&mut self, path: PathBuf) -> io::Result<()> {
+        if path == self.current_buf {
+            self.current_buf = self.previous_buf.clone();
+            self.previous_buf = PathBuf::from("vault-homepage");
+        }
+
+        if self.buffers.remove(&path).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Could not close buffer as buffer was not found",
+            ));
+        }
+
+        Ok(())
     }
 
     fn render_command_area(&mut self) -> io::Result<Vim> {
@@ -279,9 +311,9 @@ impl Vault<'_> {
     }
 
     fn new_note(&mut self) -> io::Result<()> {
-        let mut note_name_input = TextArea::default();
-        note_name_input.set_cursor_line_style(Style::default());
-        note_name_input.set_block(Block::bordered().title("Note Name"));
+        let mut note_name_area = TextArea::default();
+        note_name_area.set_cursor_line_style(Style::default());
+        note_name_area.set_block(Block::bordered().title("Note Name"));
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
@@ -302,7 +334,7 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
-                    frame.render_widget(&note_name_input, chunks[0]);
+                    frame.render_widget(&note_name_area, chunks[0]);
                     frame.render_widget(
                         self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
                         chunks[1],
@@ -314,7 +346,10 @@ impl Vault<'_> {
                 Input {
                     key: Key::Enter, ..
                 } => {
-                    let input = note_name_input.lines();
+                    // Make it so the user does not need to provide the file extension
+                    note_name_area.insert_str(".md");
+
+                    let input = note_name_area.lines();
                     let pathbuf = PathBuf::from(&input[0]);
 
                     self.file_paths.push(pathbuf.clone());
@@ -333,7 +368,92 @@ impl Vault<'_> {
                 }
                 Input { key: Key::Esc, .. } => break,
                 input => {
-                    note_name_input.input(input);
+                    note_name_area.input(input);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn insert_template(&mut self) -> io::Result<()> {
+        let mut template_name_area = TextArea::default();
+        template_name_area.set_cursor_line_style(Style::default());
+        template_name_area.set_block(Block::bordered().title("Template Name"));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    // Layout for note name area
+                    // As tall as the cursor
+                    Constraint::Length(3),
+                    // The area for the editor
+                    // Takes up the rest of the area
+                    Constraint::Min(1),
+                ]
+                .as_ref(),
+            );
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&template_name_area, chunks[0]);
+                    frame.render_widget(
+                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
+                        chunks[1],
+                    );
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    // Make it so the user does not need to provide the file extension
+                    template_name_area.insert_str(".md");
+
+                    let input = template_name_area.lines();
+                    let pathbuf = PathBuf::from(&input[0]);
+
+                    self.file_paths.push(pathbuf.clone());
+
+                    let template = Self::open_template(pathbuf.clone())?;
+
+                    if let Buffer::Editor(template) = template {
+                        let lines = template.textarea.lines();
+
+                        if let Buffer::Editor(editor) =
+                            self.buffers.get_mut(&self.current_buf).unwrap()
+                        {
+                            for line in lines {
+                                if line.contains("{{title}}") {
+                                    let line = line.replace(
+                                        "{{title}}",
+                                        &self
+                                            .current_buf
+                                            .clone()
+                                            .into_os_string()
+                                            .into_string()
+                                            .unwrap(),
+                                    );
+                                    editor.textarea.insert_str(line);
+                                    editor.textarea.insert_newline();
+                                    continue;
+                                } 
+                                editor.textarea.insert_str(line);
+                                editor.textarea.insert_newline();
+                            }
+                        }
+                    }
+
+                    break;
+                }
+                Input { key: Key::Esc, .. } => break,
+                input => {
+                    template_name_area.input(input);
                 }
             }
         }
@@ -392,6 +512,9 @@ impl Vault<'_> {
                 let current_buf = self.current_buf.clone();
                 self.current_buf = self.previous_buf.clone();
                 self.previous_buf = current_buf;
+            }
+            Command::InsertTemplate => {
+                self.insert_template()?;
             }
             Command::None => (),
         }

@@ -6,6 +6,7 @@ pub enum Command {
     NewNote,
     FollowLink,
     PreviousBuf,
+    InsertTemplate,
     None,
 }
 
@@ -19,6 +20,7 @@ impl Command {
             "new note" | "nn" => Command::NewNote,
             "follow" | "follow link" | "fl" => Command::FollowLink,
             "previous buf" | "prevb" | "pb" => Command::PreviousBuf,
+            "insert template" | "itm" => Command::InsertTemplate,
             _ => Command::None,
         }
     }
