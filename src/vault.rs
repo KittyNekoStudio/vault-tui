@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use chrono::Local;
 use crossterm::event::read;
 use ratatui::{
     DefaultTerminal,
@@ -183,22 +184,6 @@ impl Vault<'_> {
                 "Not an editor in open_template",
             ))
         }
-    }
-
-    fn close_buffer(&mut self, path: PathBuf) -> io::Result<()> {
-        if path == self.current_buf {
-            self.current_buf = self.previous_buf.clone();
-            self.previous_buf = PathBuf::from("vault-homepage");
-        }
-
-        if self.buffers.remove(&path).is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Could not close buffer as buffer was not found",
-            ));
-        }
-
-        Ok(())
     }
 
     fn render_command_area(&mut self) -> io::Result<Vim> {
@@ -442,7 +427,13 @@ impl Vault<'_> {
                                     editor.textarea.insert_str(line);
                                     editor.textarea.insert_newline();
                                     continue;
-                                } 
+                                } else if line.contains("{{date:") {
+                                    let date = get_formated_date(line.to_string())?;
+                                    editor.textarea.insert_str(date);
+                                    editor.textarea.insert_newline();
+                                    continue;
+                                }
+
                                 editor.textarea.insert_str(line);
                                 editor.textarea.insert_newline();
                             }
@@ -564,4 +555,78 @@ fn get_all_filenames(use_current_dir: bool) -> io::Result<Vec<PathBuf>> {
     populate_filenames(&root_directory, &mut all_files)?;
 
     Ok(all_files)
+}
+
+fn change_moment_syntax_to_chrono_syntax(moment: &str) -> &str {
+    match moment {
+        "M" => "%-m",
+        "MM" => "%m",
+        "MMMM" => "%B",
+        "Y" => "%Y",
+        "DD" => "%d",
+        "D" => "%-d",
+        "HH" => "%H",
+        "mm" => "%M",
+        _ => ""
+    }
+}
+
+fn get_formated_date(string: String) -> io::Result<String> {
+    let mut strings: Vec<&str> = string.split("{{").collect();
+    let (idx, string) = 'block: {
+        let mut counter = 0;
+        for line in &strings {
+            if line.contains("}}") {
+                break 'block (counter, line);
+            }
+            counter += 1;
+        }
+
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Cannot parse '}}' for date.",
+        ))
+    };
+
+    let string = string.replace("date:", "");
+    let string = string.replace("}}", "");
+
+    let pattern: Vec<&str> = string.split("").collect();
+    let mut new_pattern: Vec<String> = Vec::new();
+
+    let mut current_item = String::new();
+    for item in pattern {
+        let format_pattern = change_moment_syntax_to_chrono_syntax(item);
+        if format_pattern == "" {
+            if current_item != "" {
+                new_pattern.push(change_moment_syntax_to_chrono_syntax(&current_item).to_string());
+            }
+            current_item.clear();
+            new_pattern.push(item.to_string());
+        } else {
+            current_item += item;
+        }
+    }
+
+    let format_string = {
+        let mut inner = String::new();
+        for item in &new_pattern {
+            inner += item;
+        }
+        inner
+    };
+
+    let time = Local::now().format(&format_string).to_string();
+
+    strings[idx] = &time;
+
+    let return_string = {
+        let mut inner = String::new();
+        for item in &strings {
+            inner += item;
+        }
+        inner
+    };
+
+    Ok(return_string)
 }
