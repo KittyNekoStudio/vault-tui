@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tui_textarea::{CursorMove, Input, Key, Scrolling, TextArea};
 
-use crate::homepage::InputResult;
+use crate::{command::Command, homepage::InputResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -18,7 +18,8 @@ pub enum Transition {
     Mode(Mode),
     Pending(Input),
     InputResult(InputResult),
-    Command,
+    CommandMode,
+    CommandExec(Command),
     Search(Search),
 }
 
@@ -49,7 +50,7 @@ impl Vim {
     }
 
     pub fn exec(
-        &mut self,
+        &self,
         input: Input,
         textarea: &mut TextArea,
         file_paths: &Vec<PathBuf>,
@@ -340,7 +341,10 @@ impl Vim {
                         key: Key::Char(':'),
                         ..
                         // Do not wait until next key press, return Transition directly
-                    } if self.mode == Mode::Normal => return Transition::Command,
+                    } if self.mode == Mode::Normal => return Transition::CommandMode,
+                    Input { key: Key::Enter, .. } if self.mode == Mode::Normal => {
+                        return Transition::CommandExec(Command::FollowLink);
+                    }
                     input => return Transition::Pending(input),
                 }
 

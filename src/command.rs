@@ -3,6 +3,7 @@ pub enum Command {
     Save,
     SaveQuit,
     NewNote,
+    FollowLink,
     None,
 }
 
@@ -13,6 +14,7 @@ impl Command {
             "w" | "write" | "save" => Command::Save,
             "wq" => Command::SaveQuit,
             "nn" | "new note" => Command::NewNote,
+            "follow" | "follow link" | "fl" => Command::FollowLink,
             _ => Command::None,
         }
     }

@@ -38,7 +38,7 @@ impl HomePage<'_> {
     }
 
     pub fn input(&mut self, file_paths: &Vec<PathBuf>) -> io::Result<InputResult> {
-        let mut vim = Vim::new(Mode::HomePage);
+        let vim = Vim::new(Mode::HomePage);
 
         if let Transition::InputResult(input_result) =
             vim.exec(event::read()?.into(), &mut self.textarea, file_paths)

@@ -26,7 +26,7 @@ pub struct Vault<'a> {
     terminal: DefaultTerminal,
     current_buf: PathBuf,
     // TODO: Change to hashmap of key: PathBuf value: Buffer
-    pub buffers: HashMap<PathBuf, Buffer<'a>>,
+    buffers: HashMap<PathBuf, Buffer<'a>>,
     file_paths: Vec<PathBuf>,
 }
 
@@ -58,7 +58,7 @@ impl Vault<'_> {
                 );
             })?;
 
-            match &mut self.buffers.get_mut(&self.current_buf).unwrap() {
+            match self.buffers.get_mut(&self.current_buf).unwrap() {
                 Buffer::HomePage(homepage) => match homepage.input(&self.file_paths)? {
                     InputResult::Continue => continue,
                     InputResult::File(filename) => {
@@ -96,7 +96,11 @@ impl Vault<'_> {
                         Transition::Mode(mode) if vim.mode != mode => Vim::new(mode),
                         Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => vim,
                         Transition::Pending(input) => vim.with_pending(input),
-                        Transition::Command => self.render_command_area()?,
+                        Transition::CommandMode => self.render_command_area()?,
+                        Transition::CommandExec(command) => {
+                            self.exec_command(command)?;
+                            vim
+                        }
                         Transition::Search(search) => match search {
                             Search::Open => {
                                 let previous_search = {
@@ -139,7 +143,7 @@ impl Vault<'_> {
 
         self.buffers.insert(path.clone(), Buffer::new_editor());
         self.current_buf = path.clone();
-        
+
         if let Buffer::Editor(editor) = self.buffers.get_mut(&self.current_buf).unwrap() {
             editor.open(path)
         } else {
@@ -335,6 +339,29 @@ impl Vault<'_> {
             }
             Command::NewNote => {
                 self.new_note()?;
+            }
+            Command::FollowLink => {
+                if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
+                    let (row, col) = editor.textarea.cursor();
+                    let current_line = &editor.textarea.lines()[row];
+
+                    let col = if col + 1 > current_line.len() {
+                        col
+                    } else {
+                        col + 1
+                    };
+
+                    let line_split = current_line.split_at(col);
+
+                    if line_split.0.contains("[[") && !line_split.0.contains("]]") {
+                        let bracket_start_idx = current_line.find("[[").unwrap() + 2;
+                        let bracket_end_idx = current_line.find("]]").unwrap();
+                        let inside_filename = &current_line[bracket_start_idx..bracket_end_idx];
+
+                        let filename = inside_filename.split("|").collect::<Vec<&str>>()[0];
+                        self.open_file(PathBuf::from(filename.to_string() + ".md"))?;
+                    }
+                }
             }
             Command::None => (),
         }
