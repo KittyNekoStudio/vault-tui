@@ -414,8 +414,9 @@ impl Vault<'_> {
                             self.buffers.get_mut(&self.current_buf).unwrap()
                         {
                             for line in lines {
+                                let mut line = line.to_string();
                                 if line.contains("{{title}}") {
-                                    let line = line.replace(
+                                    let inner = line.replace(
                                         "{{title}}",
                                         &self
                                             .current_buf
@@ -424,14 +425,12 @@ impl Vault<'_> {
                                             .into_string()
                                             .unwrap(),
                                     );
-                                    editor.textarea.insert_str(line);
-                                    editor.textarea.insert_newline();
-                                    continue;
-                                } else if line.contains("{{date:") {
+                                    line = inner;
+                                } 
+
+                                if line.contains("{{date:") {
                                     let date = get_formated_date(line.to_string())?;
-                                    editor.textarea.insert_str(date);
-                                    editor.textarea.insert_newline();
-                                    continue;
+                                    line = date;
                                 }
 
                                 editor.textarea.insert_str(line);
@@ -565,14 +564,16 @@ fn change_moment_syntax_to_chrono_syntax(moment: &str) -> &str {
         "Y" => "%Y",
         "DD" => "%d",
         "D" => "%-d",
+        "H" => "%-H",
         "HH" => "%H",
+        "m" => "%-M",
         "mm" => "%M",
         _ => ""
     }
 }
 
 fn get_formated_date(string: String) -> io::Result<String> {
-    let mut strings: Vec<&str> = string.split("{{").collect();
+    let mut strings: Vec<&str> = string.split("{{date:").collect();
     let (idx, string) = 'block: {
         let mut counter = 0;
         for line in &strings {
