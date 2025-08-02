@@ -450,7 +450,11 @@ impl Vim {
                 key: Key::Char(':'),
                 ..
             } => InputResult::Command,
-            Input { key: Key::Char('o'), ctrl: true, .. } => {
+            Input {
+                key: Key::Char('o'),
+                ctrl: true,
+                ..
+            } => {
                 return InputResult::CommandExec(Command::PreviousBuf);
             }
             Input {
@@ -526,7 +530,6 @@ impl Vim {
                 let selected_file = file_paths[row].clone();
                 InputResult::File(selected_file)
             }
-            Input { key: Key::Esc, .. } => InputResult::Quit,
             _ => InputResult::Continue,
         }
     }

@@ -28,6 +28,7 @@ pub struct Vault<'a> {
     previous_buf: PathBuf,
     buffers: HashMap<PathBuf, Buffer<'a>>,
     file_paths: Vec<PathBuf>,
+    run: bool,
 }
 
 impl Vault<'_> {
@@ -45,13 +46,14 @@ impl Vault<'_> {
             previous_buf: PathBuf::from("vault-homepage"),
             buffers: hashmap,
             file_paths,
+            run: true,
         }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
         let mut vim = Vim::new(Mode::Normal);
 
-        loop {
+        while self.run {
             self.terminal.draw(|frame| {
                 frame.render_widget(
                     self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
@@ -90,7 +92,6 @@ impl Vault<'_> {
                     },
                     InputResult::Command => _ = self.render_command_area()?,
                     InputResult::CommandExec(command) => self.exec_command(command)?,
-                    InputResult::Quit => break,
                 },
                 Buffer::Editor(editor) => {
                     // TODO: switch back to event::read but the long line was messing up formating
@@ -329,9 +330,7 @@ impl Vault<'_> {
     fn exec_command(&mut self, command: Command) -> io::Result<()> {
         match command {
             Command::Quit => {
-                let current_buf = self.current_buf.clone();
-                self.current_buf = PathBuf::from("vault-homepage");
-                self.previous_buf = current_buf;
+                self.run = false;
             }
             Command::Save => {
                 if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
@@ -340,11 +339,14 @@ impl Vault<'_> {
             }
             Command::SaveQuit => {
                 if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
-                    let current_buf = self.current_buf.clone();
-                    self.current_buf = PathBuf::from("vault-homepage");
-                    self.previous_buf = current_buf;
                     editor.save()?;
                 }
+                self.run = false;
+            }
+            Command::Home => {
+                let current_buf = self.current_buf.clone();
+                self.current_buf = PathBuf::from("vault-homepage");
+                self.previous_buf = current_buf;
             }
             Command::NewNote => {
                 self.new_note()?;
