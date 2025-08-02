@@ -7,3 +7,4 @@ edition = "2024"
 ratatui = "*"
 tui-textarea = { version = "*", features = ["search"] }
 crossterm = "*"
+chrono = "*"
