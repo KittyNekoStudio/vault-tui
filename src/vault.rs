@@ -41,7 +41,7 @@ impl Vault<'_> {
         Vault {
             terminal: ratatui::init(),
             homepage: HomePage::new(&file_paths),
-            tabs: Vec::new(),
+            tabs: vec![Editor::new()],
             current_tab: 0,
             vim: Vim::new(Mode::Normal),
             file_paths,
@@ -131,6 +131,9 @@ impl Vault<'_> {
                 InputResult::Command => {
                     _ = self.render_command_area()?;
                 }
+                InputResult::CommandExec(command) => {
+                    self.exec_command(command)?;
+                }
             }
         } else {
             let tab = &mut self.tabs[self.current_tab];
@@ -214,18 +217,12 @@ impl Vault<'_> {
     fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
         self.homepage.close();
 
-        if !self.tabs.is_empty() {
-            for i in 0..self.tabs[self.current_tab].textareas.len() {
-                let tab = &mut self.tabs[self.current_tab];
-                if &tab.paths[i] == &path {
-                    tab.current = i;
-                    return Ok(());
-                }
+        for i in 0..self.tabs[self.current_tab].textareas.len() {
+            let tab = &mut self.tabs[self.current_tab];
+            if &tab.paths[i] == &path {
+                tab.current = i;
+                return Ok(());
             }
-        }
-
-        if self.tabs.len() == 0 {
-            self.tabs.push(Editor::new());
         }
 
         self.tabs[self.current_tab].open(path)?;
@@ -612,7 +609,41 @@ impl Vault<'_> {
                 self.homepage.open();
             }
             Command::FocusTab(tab) => {
-                self.current_tab = tab as usize;
+                let move_by: i32 = if tab == 0 { -1 } else { 1 };
+
+                let tab = self.current_tab as i32 + move_by;
+
+                if tab < 0 {
+                    self.current_tab = 0;
+                } else if tab >= self.tabs.len() as i32 {
+                    self.current_tab = self.tabs.len() - 1;
+                } else {
+                    self.current_tab = tab as usize;
+                }
+
+                if !self.homepage.is_open() && self.tabs[self.current_tab].textareas.len() == 0 {
+                    self.homepage.open();
+                } 
+            }
+            Command::PreviousBuffer => {
+                if self.homepage.is_open() {
+                    self.homepage.close();
+                } else {
+                    let tab = &mut self.tabs[self.current_tab];
+                    if tab.current != 0 {
+                        tab.current -= 1;
+                    }
+                }
+            }
+            Command::NextBuffer => {
+                if self.homepage.is_open() {
+                    self.homepage.close();
+                } else {
+                    let tab = &mut self.tabs[self.current_tab];
+                    if tab.current != tab.textareas.len() - 1 {
+                        tab.current += 1;
+                    }
+                }
             }
             Command::None => (),
         }

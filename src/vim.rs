@@ -350,37 +350,21 @@ impl Vim {
                     Input { key: Key::Char('t'), ctrl: true, .. } => {
                         return Transition::CommandExec(Command::NewTab);
                     }
-                    Input { key: Key::Char('1'), .. } => {
+                    Input { key: Key::Up, .. } => {
+                        return Transition::CommandExec(Command::NextBuffer);
+                    }
+                    Input { key: Key::Down, .. } => {
+                        return Transition::CommandExec(Command::PreviousBuffer);
+                    }
+                    Input { key: Key::Left, .. } => {
                         return Transition::CommandExec(Command::FocusTab(0));
                     }
-                    Input { key: Key::Char('2'), .. } => {
+                    Input { key: Key::Right, .. } => {
                         return Transition::CommandExec(Command::FocusTab(1));
                     }
-                    Input { key: Key::Char('3'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(2));
+                    input => {
+                        return Transition::Pending(input);
                     }
-                    Input { key: Key::Char('4'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(3));
-                    }
-                    Input { key: Key::Char('5'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(4));
-                    }
-                    Input { key: Key::Char('6'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(5));
-                    }
-                    Input { key: Key::Char('7'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(6));
-                    }
-                    Input { key: Key::Char('8'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(7));
-                    }
-                    Input { key: Key::Char('9'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(8));
-                    }
-                    Input { key: Key::Char('0'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::FocusTab(9));
-                    }
-                    input => return Transition::Pending(input),
                 }
 
                 match self.mode {
@@ -552,6 +536,27 @@ impl Vim {
                 ..
             } => {
                 return InputResult::Search(Search::Backward);
+            }
+            Input { key: Key::Up, .. } => {
+                return InputResult::CommandExec(Command::NextBuffer);
+            }
+            Input { key: Key::Down, .. } => {
+                return InputResult::CommandExec(Command::PreviousBuffer);
+            }
+            Input { key: Key::Left, .. } => {
+                return InputResult::CommandExec(Command::FocusTab(0));
+            }
+            Input {
+                key: Key::Right, ..
+            } => {
+                return InputResult::CommandExec(Command::FocusTab(1));
+            }
+            Input {
+                key: Key::Char('t'),
+                ctrl: true,
+                ..
+            } => {
+                return InputResult::CommandExec(Command::NewTab);
             }
             Input {
                 key: Key::Enter, ..

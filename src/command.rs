@@ -8,6 +8,8 @@ pub enum Command {
     InsertTemplate,
     NewTab,
     FocusTab(u8),
+    NextBuffer,
+    PreviousBuffer,
     None,
 }
 
@@ -22,6 +24,8 @@ impl Command {
             "follow" | "follow link" | "fl" => Command::FollowLink,
             "insert template" | "itm" => Command::InsertTemplate,
             "new tab" | "nt" => Command::NewTab,
+            "next buffer" | "nb" => Command::NextBuffer,
+            "previous buffer" | "prev buffer" | "pb" => Command::PreviousBuffer,
             _ => Command::None,
         }
     }

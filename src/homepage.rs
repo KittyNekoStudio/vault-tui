@@ -7,7 +7,10 @@ use crossterm::event;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
-use crate::vim::{Mode, Search, Transition, Vim};
+use crate::{
+    command::Command,
+    vim::{Mode, Search, Transition, Vim},
+};
 
 #[derive(Clone, Debug)]
 pub struct HomePage<'a> {
@@ -18,6 +21,7 @@ pub struct HomePage<'a> {
 pub enum InputResult {
     Continue,
     Command,
+    CommandExec(Command),
     File(PathBuf),
     Search(Search),
 }
