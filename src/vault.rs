@@ -1,6 +1,7 @@
 use std::{
     fs::{self, File},
     io::{self},
+    os::linux::raw::stat,
     path::{Path, PathBuf},
 };
 
@@ -10,8 +11,9 @@ use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout},
-    style::Style,
-    widgets::Block,
+    style::{Modifier, Style, Stylize},
+    text::{Line, Span, Text},
+    widgets::{Block, Paragraph},
 };
 use tui_textarea::{Input, Key, TextArea};
 
@@ -57,13 +59,39 @@ impl Vault<'_> {
             self.homepage.update_homepage_files(&self.file_paths);
         }
 
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref());
+
         while self.run {
+            let status_bar = {
+                let mut status_bar = Vec::new();
+
+                for i in 0..self.tabs.len() {
+                    if i == self.current_tab {
+                        status_bar.push(Span::styled(
+                            format!("{}", i),
+                            Style::default().add_modifier(Modifier::UNDERLINED),
+                        ));
+                    } else {
+                        status_bar
+                            .push(Span::styled(format!("{}", i), Style::default()));
+                    }
+                    status_bar.push(Span::styled(" ", Style::default()));
+                }
+
+                Line::from(status_bar)
+            };
+
             self.terminal.draw(|frame| {
+                let chunks = layout.split(frame.area());
+
                 if self.homepage.is_open() {
                     frame.render_widget(&self.homepage.textarea, frame.area());
                 } else {
-                    frame.render_widget(self.tabs[self.current_tab].textarea(), frame.area());
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
                 }
+                frame.render_widget(Paragraph::new(status_bar), chunks[1]);
             })?;
 
             self.input()?;
@@ -188,7 +216,6 @@ impl Vault<'_> {
     fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
         self.homepage.close();
 
-
         if !self.tabs.is_empty() {
             for i in 0..self.tabs[self.current_tab].textareas.len() {
                 let tab = &mut self.tabs[self.current_tab];
@@ -201,7 +228,7 @@ impl Vault<'_> {
 
         if self.tabs.len() == 0 {
             self.tabs.push(Editor::new());
-        } 
+        }
 
         self.tabs[self.current_tab].open(path)?;
 
