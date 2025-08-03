@@ -334,8 +334,9 @@ impl Vault<'_> {
                     // Make it so the user does not need to provide the file extension
                     note_name_area.insert_str(".md");
 
-                    let input = note_name_area.lines();
-                    let pathbuf = PathBuf::from(&input[0]);
+                    let filename = get_formated_date("{{date:YMMDDHHmm-}}".to_string())? + &note_name_area.lines()[0];
+
+                    let pathbuf = PathBuf::from(filename);
 
                     self.file_paths.push(pathbuf.clone());
 
@@ -426,11 +427,11 @@ impl Vault<'_> {
                                             .unwrap(),
                                     );
                                     line = inner;
-                                } 
+                                }
 
                                 if line.contains("{{date:") {
-                                    let date = get_formated_date(line.to_string())?;
-                                    line = date;
+                                    let inner = get_formated_date(line.to_string())?;
+                                    line = inner;
                                 }
 
                                 editor.textarea.insert_str(line);
@@ -560,6 +561,7 @@ fn change_moment_syntax_to_chrono_syntax(moment: &str) -> &str {
     match moment {
         "M" => "%-m",
         "MM" => "%m",
+        "MMM" => "%b",
         "MMMM" => "%B",
         "Y" => "%Y",
         "DD" => "%d",
@@ -568,66 +570,70 @@ fn change_moment_syntax_to_chrono_syntax(moment: &str) -> &str {
         "HH" => "%H",
         "m" => "%-M",
         "mm" => "%M",
-        _ => ""
+        _ => "",
     }
 }
 
-fn get_formated_date(string: String) -> io::Result<String> {
-    let mut strings: Vec<&str> = string.split("{{date:").collect();
-    let (idx, string) = 'block: {
-        let mut counter = 0;
-        for line in &strings {
-            if line.contains("}}") {
-                break 'block (counter, line);
+fn get_date(date: &str) -> String {
+    let mut return_date = String::new();
+    let mut current_format = String::new();
+    let mut counter = 0;
+    for char in date.to_string().chars() {
+        counter += 1;
+        let char = char.to_string();
+
+        current_format += &char;
+
+        let matched = change_moment_syntax_to_chrono_syntax(&current_format);
+
+        if matched == "" {
+            current_format.pop();
+            return_date += change_moment_syntax_to_chrono_syntax(&current_format);
+            current_format.clear();
+            // This means there is no separator character between patterns
+            // Like YMMDD instead of Y-MM-DD
+            // So add it to current_format and do not add it to return_date
+            if change_moment_syntax_to_chrono_syntax(&char) != "" {
+                current_format += &char;
+                continue;
             }
-            counter += 1;
+
+            return_date += &char;
         }
 
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Cannot parse '}}' for date.",
-        ))
-    };
-
-    let string = string.replace("date:", "");
-    let string = string.replace("}}", "");
-
-    let pattern: Vec<&str> = string.split("").collect();
-    let mut new_pattern: Vec<String> = Vec::new();
-
-    let mut current_item = String::new();
-    for item in pattern {
-        let format_pattern = change_moment_syntax_to_chrono_syntax(item);
-        if format_pattern == "" {
-            if current_item != "" {
-                new_pattern.push(change_moment_syntax_to_chrono_syntax(&current_item).to_string());
-            }
-            current_item.clear();
-            new_pattern.push(item.to_string());
-        } else {
-            current_item += item;
+        if counter == date.len() {
+            return_date += change_moment_syntax_to_chrono_syntax(&current_format);
         }
     }
 
-    let format_string = {
-        let mut inner = String::new();
-        for item in &new_pattern {
-            inner += item;
+    //todo!("{}", return_date);
+    return_date
+}
+
+fn get_formated_date(string: String) -> io::Result<String> {
+    let mut new_string_list: Vec<String> = Vec::new();
+
+    // TODO: Dates cannot have spaces as I split the string by spaces
+    for item in string.split(" ").map(|string| string.to_string()) {
+        if item.contains("{{") && item.contains("}}") {
+            let date_start = item.find("{{").unwrap();
+            let date_end = item.find("}}").unwrap();
+
+            // 2 for '{{' and 5 for 'date:'
+            let date = &item[date_start + 7..date_end];
+            let date = get_date(date);
+            let date = Local::now().format(&date).to_string();
+
+            let item_start = &item[0..date_start];
+            // 2 for '}}
+            let item_end = &item[date_end + 2..item.len()];
+
+            new_string_list.push(item_start.to_string() + &date + item_end);
+            continue;
         }
-        inner
-    };
 
-    let time = Local::now().format(&format_string).to_string();
+        new_string_list.push(item);
+    }
 
-    strings[idx] = &time;
-
-    let return_string = {
-        let mut inner = String::new();
-        for item in &strings {
-            inner += item;
-        }
-        inner
-    };
-
-    Ok(return_string)
+    Ok(new_string_list.join(" "))
 }
