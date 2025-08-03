@@ -7,6 +7,7 @@ use std::{
 
 use chrono::Local;
 use crossterm::event::read;
+use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout},
@@ -145,6 +146,40 @@ impl Vault<'_> {
                                 vim
                             }
                         },
+                        Transition::AutoComplete => {
+                            let mut link = "".to_string();
+                            if let Buffer::Editor(editor) =
+                                self.buffers.get_mut(&self.current_buf).unwrap()
+                            {
+                                let (row, _) = editor.textarea.cursor();
+                                let lines = editor.textarea.lines();
+
+                                if lines[row].contains("[[") && !lines[row].contains("]]") {
+                                    let inner_link = self.render_autocomplete()?;
+                                    if inner_link == "" {
+                                        continue;
+                                    }
+                                    // Remove the .md file extension
+                                    let inner_link = &inner_link[0..inner_link.len() - 3];
+                                    let inner_link = inner_link.to_string() + "]]";
+                                    link = inner_link;
+                                }
+                            }
+                            if let Buffer::Editor(editor) =
+                                self.buffers.get_mut(&self.current_buf).unwrap()
+                            {
+                                let (row, _) = editor.textarea.cursor();
+                                let lines = editor.textarea.lines();
+                                let start = lines[row].to_string().find("[[").unwrap() + 2;
+                                editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+                                    row as u16,
+                                    start as u16,
+                                ));
+                                editor.textarea.delete_line_by_end();
+                                editor.textarea.insert_str(link);
+                            }
+                            vim
+                        }
                     }
                 }
             }
@@ -234,6 +269,82 @@ impl Vault<'_> {
         }
 
         Ok(Vim::new(Mode::Normal))
+    }
+
+    fn render_autocomplete(&mut self) -> io::Result<String> {
+        let scores = {
+            let mut scores: Vec<(String, i64)> = Vec::new();
+            if let Buffer::Editor(editor) = self.buffers.get_mut(&self.current_buf).unwrap() {
+                let (row, _) = editor.textarea.cursor();
+                let lines = editor.textarea.lines();
+
+                let matcher = SkimMatcherV2::default();
+                let start = lines[row].to_string().find("[[").unwrap() + 2;
+                for file in &self.file_paths {
+                    let to_match = &lines[row][start..];
+                    let matched = matcher.fuzzy_match(file.to_str().unwrap(), to_match);
+                    if matched.is_some() {
+                        scores.push((file.to_str().unwrap().to_string(), matched.unwrap()));
+                    } else {
+                        continue;
+                    }
+                }
+                scores.sort();
+                scores.reverse();
+            }
+            scores
+        };
+
+        let mut autocomplete_area = TextArea::default();
+        autocomplete_area.set_cursor_line_style(Style::default());
+        autocomplete_area.set_block(Block::bordered());
+
+        for (name, _) in scores {
+            autocomplete_area.insert_str(name);
+            autocomplete_area.insert_newline();
+        }
+
+        autocomplete_area.move_cursor(tui_textarea::CursorMove::Jump(0, 0));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(10)].as_ref());
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&autocomplete_area, chunks[1]);
+                    frame.render_widget(
+                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
+                        chunks[0],
+                    );
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input { key: Key::Esc, .. } => break,
+                Input {
+                    key: Key::Enter, ..
+                }
+                | Input {
+                    key: Key::Char('y'),
+                    ctrl: true,
+                    ..
+                } => {
+                    let (row, _) = autocomplete_area.cursor();
+                    let lines = autocomplete_area.lines();
+
+                    return Ok(lines[row].clone());
+                }
+                input => {
+                    autocomplete_area.input(input);
+                }
+            }
+        }
+
+        Ok("".to_string())
     }
 
     fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
@@ -334,7 +445,8 @@ impl Vault<'_> {
                     // Make it so the user does not need to provide the file extension
                     note_name_area.insert_str(".md");
 
-                    let filename = get_formated_date("{{date:YMMDDHHmm-}}".to_string())? + &note_name_area.lines()[0];
+                    let filename = get_formated_date("{{date:YMMDDHHmm-}}".to_string())?
+                        + &note_name_area.lines()[0];
 
                     let pathbuf = PathBuf::from(filename);
 

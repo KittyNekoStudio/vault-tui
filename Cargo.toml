@@ -8,3 +8,4 @@ ratatui = "*"
 tui-textarea = { version = "*", features = ["search"] }
 crossterm = "*"
 chrono = "*"
+fuzzy-matcher = "*"

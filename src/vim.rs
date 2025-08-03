@@ -21,6 +21,7 @@ pub enum Transition {
     CommandMode,
     CommandExec(Command),
     Search(Search),
+    AutoComplete,
 }
 
 pub enum Search {
@@ -211,10 +212,10 @@ impl Vim {
                         ..
                     } => textarea.scroll((1, 0)),
                     Input {
-                        key: Key::Char('y'),
+                        key: Key::Char('n'),
                         ctrl: true,
                         ..
-                    } => textarea.scroll((-1, 0)),
+                    } => return Transition::AutoComplete,
                     Input {
                         key: Key::Char('d'),
                         ctrl: true,
@@ -369,6 +370,11 @@ impl Vim {
             }
             Mode::Insert => match input {
                 Input { key: Key::Esc, .. } => Transition::Mode(Mode::Normal),
+                Input {
+                    key: Key::Char('n'),
+                    ctrl: true,
+                    ..
+                } => return Transition::AutoComplete,
                 Input {
                     key: Key::Char(char),
                     ..
