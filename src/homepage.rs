@@ -64,7 +64,7 @@ impl HomePage<'_> {
         self.open = false
     }
 
-    pub fn is_open(&mut self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.open
     }
 }

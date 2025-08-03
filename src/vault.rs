@@ -1,7 +1,6 @@
 use std::{
     fs::{self, File},
     io::{self},
-    os::linux::raw::stat,
     path::{Path, PathBuf},
 };
 
@@ -11,8 +10,8 @@ use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout},
-    style::{Modifier, Style, Stylize},
-    text::{Line, Span, Text},
+    style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Paragraph},
 };
 use tui_textarea::{Input, Key, TextArea};
@@ -74,8 +73,7 @@ impl Vault<'_> {
                             Style::default().add_modifier(Modifier::UNDERLINED),
                         ));
                     } else {
-                        status_bar
-                            .push(Span::styled(format!("{}", i), Style::default()));
+                        status_bar.push(Span::styled(format!("{}", i), Style::default()));
                     }
                     status_bar.push(Span::styled(" ", Style::default()));
                 }
@@ -265,8 +263,13 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
+                    if self.homepage.is_open() {
+                        frame.render_widget(&self.homepage.textarea, chunks[1]);
+                    } else {
+                        frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
+                    }
+
                     frame.render_widget(&command_area, chunks[0]);
-                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
                 })
                 .unwrap();
 
@@ -361,13 +364,6 @@ impl Vault<'_> {
     }
 
     fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
-        let editor = &mut self.tabs[self.current_tab];
-        let textarea: &mut TextArea = if self.homepage.is_open() {
-            &mut self.homepage.textarea
-        } else {
-            &mut editor.textareas[editor.current]
-        };
-
         let mut search_area = TextArea::default();
         search_area.set_cursor_line_style(Style::default());
 
@@ -391,11 +387,23 @@ impl Vault<'_> {
             self.terminal
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
+                    if self.homepage.is_open() {
+                        frame.render_widget(&self.homepage.textarea, chunks[1]);
+                    } else {
+                        let tab = &self.tabs[self.current_tab];
+                        frame.render_widget(&tab.textareas[tab.current], chunks[1]);
+                    }
 
                     frame.render_widget(&search_area, chunks[0]);
-                    frame.render_widget(&textarea.clone(), chunks[1]);
                 })
                 .unwrap();
+
+            let textarea: &mut TextArea = if self.homepage.is_open() {
+                &mut self.homepage.textarea
+            } else {
+                let tab = &mut self.tabs[self.current_tab];
+                &mut tab.textareas[tab.current]
+            };
 
             match read()?.into() {
                 Input {
