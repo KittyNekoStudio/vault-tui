@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fs::{self, File},
     io::{self},
     path::{Path, PathBuf},
@@ -17,18 +16,19 @@ use ratatui::{
 use tui_textarea::{Input, Key, TextArea};
 
 use crate::{
-    buffer::Buffer,
     command::Command,
-    homepage::InputResult,
+    editor::Editor,
+    homepage::{HomePage, InputResult},
     vim::{Mode, Search, Transition, Vim},
 };
 
 #[derive(Debug)]
 pub struct Vault<'a> {
     terminal: DefaultTerminal,
-    current_buf: PathBuf,
-    previous_buf: PathBuf,
-    buffers: HashMap<PathBuf, Buffer<'a>>,
+    homepage: HomePage<'a>,
+    tabs: Vec<Editor<'a>>,
+    current_tab: usize,
+    vim: Vim,
     file_paths: Vec<PathBuf>,
     run: bool,
 }
@@ -36,189 +36,182 @@ pub struct Vault<'a> {
 impl Vault<'_> {
     pub fn new<'a>() -> Vault<'a> {
         let file_paths = get_all_filenames(false).unwrap();
-        let mut hashmap = HashMap::new();
-        hashmap.insert(
-            PathBuf::from("vault-homepage"),
-            Buffer::new_homepage(&file_paths),
-        );
 
         Vault {
             terminal: ratatui::init(),
-            current_buf: PathBuf::from("vault-homepage"),
-            previous_buf: PathBuf::from("vault-homepage"),
-            buffers: hashmap,
+            homepage: HomePage::new(&file_paths),
+            tabs: Vec::new(),
+            current_tab: 0,
+            vim: Vim::new(Mode::Normal),
             file_paths,
             run: true,
         }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
-        let mut vim = Vim::new(Mode::Normal);
-
         // When provided with a file instead of a dir
         // Open the file then update self.file_paths and the homepage with pwd
         if self.file_paths.len() == 1 {
             self.open_file(self.file_paths[0].clone())?;
             self.file_paths = get_all_filenames(true).unwrap();
-            if let Buffer::HomePage(homepage) = &mut self
-                .buffers
-                .get_mut(&PathBuf::from("vault-homepage"))
-                .unwrap()
-            {
-                homepage.update_homepage_files(&self.file_paths);
-            }
+            self.homepage.update_homepage_files(&self.file_paths);
         }
 
         while self.run {
             self.terminal.draw(|frame| {
-                frame.render_widget(
-                    self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
-                    frame.area(),
-                );
+                if self.homepage.is_open() {
+                    frame.render_widget(&self.homepage.textarea, frame.area());
+                } else {
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), frame.area());
+                }
             })?;
 
-            match self.buffers.get_mut(&self.current_buf).unwrap() {
-                Buffer::HomePage(homepage) => match homepage.input(&self.file_paths)? {
-                    InputResult::Continue => continue,
-                    InputResult::File(filename) => {
-                        self.open_file(filename)?;
-                    }
-                    InputResult::Search(search) => match search {
-                        Search::Open => {
-                            let previous_search = {
-                                if homepage.textarea.search_pattern().is_some() {
-                                    homepage
-                                        .textarea
-                                        .search_pattern()
-                                        .unwrap()
-                                        .as_str()
-                                        .to_string()
-                                } else {
-                                    "".to_string()
-                                }
-                            };
-                            self.render_search_area(previous_search)?;
-                        }
-                        Search::Forward => {
-                            homepage.textarea.search_forward(false);
-                        }
-                        Search::Backward => {
-                            homepage.textarea.search_back(false);
-                        }
-                    },
-                    InputResult::Command => _ = self.render_command_area()?,
-                    InputResult::CommandExec(command) => self.exec_command(command)?,
-                },
-                Buffer::Editor(editor) => {
-                    // TODO: switch back to event::read but the long line was messing up formating
-                    vim = match vim.exec(read()?.into(), &mut editor.textarea, &self.file_paths) {
-                        Transition::Mode(mode) if vim.mode != mode => Vim::new(mode),
-                        Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => vim,
-                        Transition::Pending(input) => vim.with_pending(input),
-                        Transition::CommandMode => self.render_command_area()?,
-                        Transition::CommandExec(command) => {
-                            self.exec_command(command)?;
-                            vim
-                        }
-                        Transition::Search(search) => match search {
-                            Search::Open => {
-                                let previous_search = {
-                                    if editor.textarea.search_pattern().is_some() {
-                                        editor
-                                            .textarea
-                                            .search_pattern()
-                                            .unwrap()
-                                            .as_str()
-                                            .to_string()
-                                    } else {
-                                        "".to_string()
-                                    }
-                                };
-                                self.render_search_area(previous_search)?;
-                                vim
-                            }
-                            Search::Forward => {
-                                editor.textarea.search_forward(false);
-                                vim
-                            }
-                            Search::Backward => {
-                                editor.textarea.search_back(false);
-                                vim
-                            }
-                        },
-                        Transition::AutoComplete => {
-                            let mut link = "".to_string();
-                            if let Buffer::Editor(editor) =
-                                self.buffers.get_mut(&self.current_buf).unwrap()
-                            {
-                                let (row, _) = editor.textarea.cursor();
-                                let lines = editor.textarea.lines();
-
-                                if lines[row].contains("[[") && !lines[row].contains("]]") {
-                                    let inner_link = self.render_autocomplete()?;
-                                    if inner_link == "" {
-                                        continue;
-                                    }
-                                    // Remove the .md file extension
-                                    let inner_link = &inner_link[0..inner_link.len() - 3];
-                                    let inner_link = inner_link.to_string() + "]]";
-                                    link = inner_link;
-                                }
-                            }
-                            if let Buffer::Editor(editor) =
-                                self.buffers.get_mut(&self.current_buf).unwrap()
-                            {
-                                let (row, _) = editor.textarea.cursor();
-                                let lines = editor.textarea.lines();
-                                let start = lines[row].to_string().find("[[").unwrap() + 2;
-                                editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
-                                    row as u16,
-                                    start as u16,
-                                ));
-                                editor.textarea.delete_line_by_end();
-                                editor.textarea.insert_str(link);
-                            }
-                            vim
-                        }
-                    }
-                }
-            }
+            self.input()?;
         }
 
         Ok(())
     }
 
-    fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
-        self.previous_buf = self.current_buf.clone();
-        if self.buffers.contains_key(&path) {
-            self.current_buf = path;
-            return Ok(());
-        }
-
-        self.buffers.insert(path.clone(), Buffer::new_editor());
-        self.current_buf = path.clone();
-
-        if let Buffer::Editor(editor) = self.buffers.get_mut(&self.current_buf).unwrap() {
-            editor.open(path)
+    fn input(&mut self) -> io::Result<()> {
+        if self.homepage.is_open() {
+            match self.homepage.input(&self.file_paths)? {
+                InputResult::Continue => (),
+                InputResult::File(filename) => {
+                    return self.open_file(filename);
+                }
+                InputResult::Search(search) => match search {
+                    Search::Open => {
+                        let previous_search = {
+                            if self.homepage.textarea.search_pattern().is_some() {
+                                self.homepage
+                                    .textarea
+                                    .search_pattern()
+                                    .unwrap()
+                                    .as_str()
+                                    .to_string()
+                            } else {
+                                "".to_string()
+                            }
+                        };
+                        self.vim = self.render_search_area(previous_search)?;
+                    }
+                    Search::Forward => {
+                        self.homepage.textarea.search_forward(false);
+                    }
+                    Search::Backward => {
+                        self.homepage.textarea.search_back(false);
+                    }
+                },
+                InputResult::Command => {
+                    _ = self.render_command_area()?;
+                }
+            }
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Not an editor in open_file",
-            ))
+            let tab = &mut self.tabs[self.current_tab];
+            self.vim = match self.vim.exec(
+                read()?.into(),
+                &mut tab.textareas[tab.current],
+                &self.file_paths,
+            ) {
+                Transition::Mode(mode) if self.vim.mode != mode => Vim::new(mode),
+                Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => {
+                    return Ok(());
+                }
+                Transition::Pending(input) => self.vim.with_pending(input),
+                Transition::CommandMode => self.render_command_area()?,
+                Transition::CommandExec(command) => {
+                    self.exec_command(command)?;
+                    return Ok(());
+                }
+                Transition::Search(search) => match search {
+                    Search::Open => {
+                        let previous_search = {
+                            if self.tabs[self.current_tab]
+                                .textarea()
+                                .search_pattern()
+                                .is_some()
+                            {
+                                self.tabs[self.current_tab]
+                                    .textarea()
+                                    .search_pattern()
+                                    .unwrap()
+                                    .as_str()
+                                    .to_string()
+                            } else {
+                                "".to_string()
+                            }
+                        };
+                        self.render_search_area(previous_search)?;
+                        return Ok(());
+                    }
+                    Search::Forward => {
+                        let tab = &mut self.tabs[self.current_tab];
+                        tab.textareas[tab.current].search_forward(false);
+                        return Ok(());
+                    }
+                    Search::Backward => {
+                        let tab = &mut self.tabs[self.current_tab];
+                        tab.textareas[tab.current].search_back(false);
+                        return Ok(());
+                    }
+                },
+                Transition::AutoComplete => {
+                    let mut link = "".to_string();
+                    let (row, _) = self.tabs[self.current_tab].textarea().cursor();
+                    let lines = self.tabs[self.current_tab].textarea().lines();
+
+                    if lines[row].contains("[[") && !lines[row].contains("]]") {
+                        let inner_link = self.render_autocomplete()?;
+                        if inner_link == "" {
+                            return Ok(());
+                        }
+                        // Remove the .md file extension
+                        let inner_link = &inner_link[0..inner_link.len() - 3];
+                        let inner_link = inner_link.to_string() + "]]";
+                        link = inner_link;
+                    }
+                    let (row, _) = self.tabs[self.current_tab].textarea().cursor();
+                    let lines = self.tabs[self.current_tab].textarea().lines();
+                    let start = lines[row].to_string().find("[[").unwrap() + 2;
+                    let current = &mut self.tabs[self.current_tab];
+                    current.textareas[current.current]
+                        .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
+                    current.textareas[current.current].delete_line_by_end();
+                    current.textareas[current.current].insert_str(link);
+                    return Ok(());
+                }
+            }
         }
+        Ok(())
     }
 
-    fn open_template(path: PathBuf) -> io::Result<Buffer<'static>> {
-        let editor = Buffer::new_editor();
-        if let Buffer::Editor(mut editor) = editor {
-            editor.open(path)?;
-            Ok(Buffer::Editor(editor))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Not an editor in open_template",
-            ))
+    fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
+        self.homepage.close();
+
+
+        if !self.tabs.is_empty() {
+            for i in 0..self.tabs[self.current_tab].textareas.len() {
+                let tab = &mut self.tabs[self.current_tab];
+                if &tab.paths[i] == &path {
+                    tab.current = i;
+                    return Ok(());
+                }
+            }
         }
+
+        if self.tabs.len() == 0 {
+            self.tabs.push(Editor::new());
+        } 
+
+        self.tabs[self.current_tab].open(path)?;
+
+        Ok(())
+    }
+
+    fn open_template(path: PathBuf) -> io::Result<Editor<'static>> {
+        let mut editor = Editor::new();
+        editor.open(path)?;
+        Ok(editor)
     }
 
     fn render_command_area(&mut self) -> io::Result<Vim> {
@@ -246,10 +239,7 @@ impl Vault<'_> {
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&command_area, chunks[0]);
-                    frame.render_widget(
-                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
-                        chunks[1],
-                    );
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
                 })
                 .unwrap();
 
@@ -274,24 +264,23 @@ impl Vault<'_> {
     fn render_autocomplete(&mut self) -> io::Result<String> {
         let scores = {
             let mut scores: Vec<(String, i64)> = Vec::new();
-            if let Buffer::Editor(editor) = self.buffers.get_mut(&self.current_buf).unwrap() {
-                let (row, _) = editor.textarea.cursor();
-                let lines = editor.textarea.lines();
+            let editor = &self.tabs[self.current_tab];
+            let (row, _) = editor.textarea().cursor();
+            let lines = editor.textarea().lines();
 
-                let matcher = SkimMatcherV2::default();
-                let start = lines[row].to_string().find("[[").unwrap() + 2;
-                for file in &self.file_paths {
-                    let to_match = &lines[row][start..];
-                    let matched = matcher.fuzzy_match(file.to_str().unwrap(), to_match);
-                    if matched.is_some() {
-                        scores.push((file.to_str().unwrap().to_string(), matched.unwrap()));
-                    } else {
-                        continue;
-                    }
+            let matcher = SkimMatcherV2::default();
+            let start = lines[row].to_string().find("[[").unwrap() + 2;
+            for file in &self.file_paths {
+                let to_match = &lines[row][start..];
+                let matched = matcher.fuzzy_match(file.to_str().unwrap(), to_match);
+                if matched.is_some() {
+                    scores.push((file.to_str().unwrap().to_string(), matched.unwrap()));
+                } else {
+                    continue;
                 }
-                scores.sort();
-                scores.reverse();
             }
+            scores.sort();
+            scores.reverse();
             scores
         };
 
@@ -316,10 +305,7 @@ impl Vault<'_> {
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&autocomplete_area, chunks[1]);
-                    frame.render_widget(
-                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
-                        chunks[0],
-                    );
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
                 })
                 .unwrap();
 
@@ -348,10 +334,11 @@ impl Vault<'_> {
     }
 
     fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
-        let current = self.buffers.get_mut(&self.current_buf).unwrap();
-        let textarea = match current {
-            Buffer::Editor(editor) => &mut editor.textarea,
-            Buffer::HomePage(homepage) => &mut homepage.textarea,
+        let editor = &mut self.tabs[self.current_tab];
+        let textarea: &mut TextArea = if self.homepage.is_open() {
+            &mut self.homepage.textarea
+        } else {
+            &mut editor.textareas[editor.current]
         };
 
         let mut search_area = TextArea::default();
@@ -431,10 +418,7 @@ impl Vault<'_> {
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&note_name_area, chunks[0]);
-                    frame.render_widget(
-                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
-                        chunks[1],
-                    );
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
                 })
                 .unwrap();
 
@@ -455,12 +439,8 @@ impl Vault<'_> {
                     File::create(&pathbuf)?;
                     self.open_file(pathbuf)?;
 
-                    if let Buffer::HomePage(homepage) = self
-                        .buffers
-                        .get_mut(&PathBuf::from("vault-homepage"))
-                        .unwrap()
-                    {
-                        homepage.update_homepage_files(&self.file_paths);
+                    if self.homepage.is_open() {
+                        self.homepage.update_homepage_files(&self.file_paths);
                     }
                     break;
                 }
@@ -499,10 +479,7 @@ impl Vault<'_> {
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&template_name_area, chunks[0]);
-                    frame.render_widget(
-                        self.buffers.get_mut(&self.current_buf).unwrap().textarea(),
-                        chunks[1],
-                    );
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
                 })
                 .unwrap();
 
@@ -519,37 +496,24 @@ impl Vault<'_> {
                     self.file_paths.push(pathbuf.clone());
 
                     let template = Self::open_template(pathbuf.clone())?;
+                    let tab = &mut self.tabs[self.current_tab];
 
-                    if let Buffer::Editor(template) = template {
-                        let lines = template.textarea.lines();
+                    let lines = template.textarea().lines();
 
-                        if let Buffer::Editor(editor) =
-                            self.buffers.get_mut(&self.current_buf).unwrap()
-                        {
-                            for line in lines {
-                                let mut line = line.to_string();
-                                if line.contains("{{title}}") {
-                                    let inner = line.replace(
-                                        "{{title}}",
-                                        &self
-                                            .current_buf
-                                            .clone()
-                                            .into_os_string()
-                                            .into_string()
-                                            .unwrap(),
-                                    );
-                                    line = inner;
-                                }
-
-                                if line.contains("{{date:") {
-                                    let inner = get_formated_date(line.to_string())?;
-                                    line = inner;
-                                }
-
-                                editor.textarea.insert_str(line);
-                                editor.textarea.insert_newline();
-                            }
+                    for line in lines {
+                        let mut line = line.to_string();
+                        if line.contains("{{title}}") {
+                            let inner = line.replace("{{title}}", tab.path().to_str().unwrap());
+                            line = inner;
                         }
+
+                        if line.contains("{{date:") {
+                            let inner = get_formated_date(line.to_string())?;
+                            line = inner;
+                        }
+
+                        tab.textareas[tab.current].insert_str(line);
+                        tab.textareas[tab.current].insert_newline();
                     }
 
                     break;
@@ -570,54 +534,50 @@ impl Vault<'_> {
                 self.run = false;
             }
             Command::Save => {
-                if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
-                    editor.save()?;
-                }
+                self.tabs[self.current_tab].save()?;
             }
             Command::SaveQuit => {
-                if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
-                    editor.save()?;
-                }
+                self.tabs[self.current_tab].save()?;
                 self.run = false;
             }
             Command::Home => {
-                let current_buf = self.current_buf.clone();
-                self.current_buf = PathBuf::from("vault-homepage");
-                self.previous_buf = current_buf;
+                self.homepage.open();
             }
             Command::NewNote => {
                 self.new_note()?;
             }
             Command::FollowLink => {
-                if let Buffer::Editor(editor) = &self.buffers[&self.current_buf] {
-                    let (row, col) = editor.textarea.cursor();
-                    let current_line = &editor.textarea.lines()[row];
+                let tab = &self.tabs[self.current_tab];
+                let (row, col) = tab.textarea().cursor();
+                let current_line = &tab.textarea().lines()[row];
 
-                    let col = if col + 1 > current_line.len() {
-                        col
-                    } else {
-                        col + 1
-                    };
+                let col = if col + 1 > current_line.len() {
+                    col
+                } else {
+                    col + 1
+                };
 
-                    let line_split = current_line.split_at(col);
+                let line_split = current_line.split_at(col);
 
-                    if line_split.0.contains("[[") && !line_split.0.contains("]]") {
-                        let bracket_start_idx = current_line.find("[[").unwrap() + 2;
-                        let bracket_end_idx = current_line.find("]]").unwrap();
-                        let inside_filename = &current_line[bracket_start_idx..bracket_end_idx];
+                if line_split.0.contains("[[") && !line_split.0.contains("]]") {
+                    let bracket_start_idx = current_line.find("[[").unwrap() + 2;
+                    let bracket_end_idx = current_line.find("]]").unwrap();
+                    let inside_filename = &current_line[bracket_start_idx..bracket_end_idx];
 
-                        let filename = inside_filename.split("|").collect::<Vec<&str>>()[0];
-                        self.open_file(PathBuf::from(filename.to_string() + ".md"))?;
-                    }
+                    let filename = inside_filename.split("|").collect::<Vec<&str>>()[0];
+                    self.open_file(PathBuf::from(filename.to_string() + ".md"))?;
                 }
-            }
-            Command::PreviousBuf => {
-                let current_buf = self.current_buf.clone();
-                self.current_buf = self.previous_buf.clone();
-                self.previous_buf = current_buf;
             }
             Command::InsertTemplate => {
                 self.insert_template()?;
+            }
+            Command::NewTab => {
+                self.tabs.push(Editor::new());
+                self.current_tab += 1;
+                self.homepage.open();
+            }
+            Command::FocusTab(tab) => {
+                self.current_tab = tab as usize;
             }
             Command::None => (),
         }

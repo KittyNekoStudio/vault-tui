@@ -5,8 +5,9 @@ pub enum Command {
     Home,
     NewNote,
     FollowLink,
-    PreviousBuf,
     InsertTemplate,
+    NewTab,
+    FocusTab(u8),
     None,
 }
 
@@ -19,8 +20,8 @@ impl Command {
             "home" | "h" => Command::Home,
             "new note" | "nn" => Command::NewNote,
             "follow" | "follow link" | "fl" => Command::FollowLink,
-            "previous buf" | "prevb" | "pb" => Command::PreviousBuf,
             "insert template" | "itm" => Command::InsertTemplate,
+            "new tab" | "nt" => Command::NewTab,
             _ => Command::None,
         }
     }

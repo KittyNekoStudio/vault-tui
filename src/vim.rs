@@ -30,6 +30,7 @@ pub enum Search {
     Backward,
 }
 
+#[derive(Debug)]
 pub struct Vim {
     pub mode: Mode,
     pending: Input,
@@ -43,7 +44,7 @@ impl Vim {
         }
     }
 
-    pub fn with_pending(self, pending: Input) -> Self {
+    pub fn with_pending(&self, pending: Input) -> Self {
         Self {
             mode: self.mode,
             pending,
@@ -177,9 +178,6 @@ impl Vim {
                         textarea.cancel_selection();
                         textarea.move_cursor(CursorMove::End);
                         return Transition::Mode(Mode::Insert);
-                    }
-                    Input { key: Key::Char('o'), ctrl: true, .. } => {
-                        return Transition::CommandExec(Command::PreviousBuf);
                     }
                     Input {
                         key: Key::Char('o'),
@@ -349,6 +347,39 @@ impl Vim {
                     Input { key: Key::Enter, .. } if self.mode == Mode::Normal => {
                         return Transition::CommandExec(Command::FollowLink);
                     }
+                    Input { key: Key::Char('t'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::NewTab);
+                    }
+                    Input { key: Key::Char('1'), .. } => {
+                        return Transition::CommandExec(Command::FocusTab(0));
+                    }
+                    Input { key: Key::Char('2'), .. } => {
+                        return Transition::CommandExec(Command::FocusTab(1));
+                    }
+                    Input { key: Key::Char('3'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(2));
+                    }
+                    Input { key: Key::Char('4'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(3));
+                    }
+                    Input { key: Key::Char('5'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(4));
+                    }
+                    Input { key: Key::Char('6'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(5));
+                    }
+                    Input { key: Key::Char('7'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(6));
+                    }
+                    Input { key: Key::Char('8'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(7));
+                    }
+                    Input { key: Key::Char('9'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(8));
+                    }
+                    Input { key: Key::Char('0'), ctrl: true, .. } => {
+                        return Transition::CommandExec(Command::FocusTab(9));
+                    }
                     input => return Transition::Pending(input),
                 }
 
@@ -456,13 +487,6 @@ impl Vim {
                 key: Key::Char(':'),
                 ..
             } => InputResult::Command,
-            Input {
-                key: Key::Char('o'),
-                ctrl: true,
-                ..
-            } => {
-                return InputResult::CommandExec(Command::PreviousBuf);
-            }
             Input {
                 key: Key::Char('^'),
                 ..

@@ -1,4 +1,3 @@
-mod buffer;
 mod command;
 mod editor;
 mod homepage;

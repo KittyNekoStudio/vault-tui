@@ -7,14 +7,12 @@ use crossterm::event;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
-use crate::{
-    command::Command,
-    vim::{Mode, Search, Transition, Vim},
-};
+use crate::vim::{Mode, Search, Transition, Vim};
 
 #[derive(Clone, Debug)]
 pub struct HomePage<'a> {
     pub textarea: TextArea<'a>,
+    open: bool,
 }
 
 pub enum InputResult {
@@ -22,7 +20,6 @@ pub enum InputResult {
     Command,
     File(PathBuf),
     Search(Search),
-    CommandExec(Command),
 }
 
 impl HomePage<'_> {
@@ -33,11 +30,15 @@ impl HomePage<'_> {
             .collect();
         let mut textarea = TextArea::new(file_paths);
         textarea.set_block(Block::default().borders(Borders::ALL));
-        Self { textarea }
+        Self {
+            textarea,
+            open: true,
+        }
     }
 
     pub fn update_homepage_files(&mut self, file_paths: &Vec<PathBuf>) {
         *self = Self::new(file_paths);
+        self.close();
     }
 
     pub fn input(&mut self, file_paths: &Vec<PathBuf>) -> io::Result<InputResult> {
@@ -53,5 +54,17 @@ impl HomePage<'_> {
                 "failed to match input result",
             ));
         }
+    }
+
+    pub fn open(&mut self) {
+        self.open = true
+    }
+
+    pub fn close(&mut self) {
+        self.open = false
+    }
+
+    pub fn is_open(&mut self) -> bool {
+        self.open
     }
 }
