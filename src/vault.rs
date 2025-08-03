@@ -563,14 +563,28 @@ impl Vault<'_> {
     fn exec_command(&mut self, command: Command) -> io::Result<()> {
         match command {
             Command::Quit => {
-                self.run = false;
+                self.tabs.remove(self.current_tab);
+                if self.tabs.len() == 0 {
+                    self.run = false;
+                } else {
+                    if self.current_tab >= self.tabs.len() && self.current_tab != 0 {
+                        self.current_tab -= 1;
+                    }
+                }
             }
             Command::Save => {
                 self.tabs[self.current_tab].save()?;
             }
             Command::SaveQuit => {
                 self.tabs[self.current_tab].save()?;
-                self.run = false;
+                self.tabs.remove(self.current_tab);
+                if self.tabs.len() == 0 {
+                    self.run = false;
+                } else {
+                    if self.current_tab >= self.tabs.len() {
+                        self.current_tab -= 1;
+                    }
+                }
             }
             Command::Home => {
                 self.homepage.open();
