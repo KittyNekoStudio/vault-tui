@@ -33,7 +33,7 @@ impl Editor<'_> {
 
     pub fn open(&mut self, path: PathBuf) -> io::Result<()> {
         if self.textareas.len() != 0 {
-            self.current += 1;
+            self.current = self.textareas.len();
         }
 
         let file = File::open(&path)?;
