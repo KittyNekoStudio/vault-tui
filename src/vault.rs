@@ -225,7 +225,7 @@ impl Vault<'_> {
             }
         }
 
-        self.tabs[self.current_tab].open(path)?;
+        self.tabs[self.current_tab].open(path.clone())?;
 
         Ok(())
     }
@@ -449,8 +449,15 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
+
+                    if self.homepage.is_open() {
+                        frame.render_widget(&self.homepage.textarea, chunks[1]);
+                    } else {
+                        let tab = &self.tabs[self.current_tab];
+                        frame.render_widget(&tab.textareas[tab.current], chunks[1]);
+                    }
+
                     frame.render_widget(&note_name_area, chunks[0]);
-                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
                 })
                 .unwrap();
 
@@ -466,14 +473,11 @@ impl Vault<'_> {
 
                     let pathbuf = PathBuf::from(filename);
 
-                    self.file_paths.push(pathbuf.clone());
-
                     File::create(&pathbuf)?;
-                    self.open_file(pathbuf)?;
+                    self.open_file(pathbuf.clone())?;
+                    self.file_paths.push(pathbuf);
+                    self.homepage.update_homepage_files(&self.file_paths);
 
-                    if self.homepage.is_open() {
-                        self.homepage.update_homepage_files(&self.file_paths);
-                    }
                     break;
                 }
                 Input { key: Key::Esc, .. } => break,
@@ -686,6 +690,8 @@ fn populate_filenames(current_path: &Path, files: &mut Vec<PathBuf>) -> io::Resu
             }
         }
     } else if current_path.is_file() {
+        // TODO: When there is only one file in dir it opens the file and not the homepage.
+        // Keep or not?
         files.push(current_path.to_path_buf());
     }
     Ok(())
