@@ -360,6 +360,112 @@ impl Vault<'_> {
         Ok("".to_string())
     }
 
+    fn render_file_search(&mut self) -> io::Result<String> {
+        let mut note_search_area = TextArea::default();
+        note_search_area.set_cursor_line_style(Style::default());
+        note_search_area.set_block(Block::bordered().title("Note Search"));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Length(3),
+                    Constraint::Length(10),
+                    Constraint::Min(1),
+                ]
+                .as_ref(),
+            );
+
+        let mut autocomplete_cursor = (0, 0);
+        loop {
+            let scores = {
+                let mut scores: Vec<(String, i64)> = Vec::new();
+                let lines = note_search_area.lines();
+
+                let matcher = SkimMatcherV2::default();
+                for file in &self.file_paths {
+                    let to_match = &lines[0];
+                    let matched = matcher.fuzzy_match(file.to_str().unwrap(), to_match);
+                    if matched.is_some() {
+                        scores.push((file.to_str().unwrap().to_string(), matched.unwrap()));
+                    } else {
+                        continue;
+                    }
+                }
+                scores.sort();
+                scores.reverse();
+                scores
+            };
+
+            let mut autocomplete_area = TextArea::default();
+            autocomplete_area.set_cursor_line_style(Style::default());
+            autocomplete_area.set_block(Block::bordered());
+
+            for (name, _) in scores {
+                autocomplete_area.insert_str(name);
+                autocomplete_area.insert_newline();
+            }
+
+            autocomplete_area.move_cursor(tui_textarea::CursorMove::Jump(
+                autocomplete_cursor.0,
+                autocomplete_cursor.1,
+            ));
+
+            self.terminal
+                .draw(|frame| {
+                    let chunks = layout.split(frame.area());
+
+                    frame.render_widget(&note_search_area, chunks[0]);
+                    frame.render_widget(&autocomplete_area, chunks[1]);
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[2]);
+                })
+                .unwrap();
+
+            match read()?.into() {
+                Input { key: Key::Esc, .. } => break,
+                Input {
+                    key: Key::Enter, ..
+                }
+                | Input {
+                    key: Key::Char('y'),
+                    ctrl: true,
+                    ..
+                } => {
+                    let (row, _) = autocomplete_area.cursor();
+                    let lines = autocomplete_area.lines();
+
+                    return Ok(lines[row].clone());
+                }
+                input => {
+                    if input
+                        == (Input {
+                            key: Key::Char('n'),
+                            ctrl: true,
+                            alt: false,
+                            shift: false,
+                        })
+                        || input
+                            == (Input {
+                                key: Key::Char('p'),
+                                ctrl: true,
+                                alt: false,
+                                shift: false,
+                            })
+                    {
+                        autocomplete_area.input(input);
+                        let (row, col) = autocomplete_area.cursor();
+                        autocomplete_cursor = (row as u16, col as u16);
+                    } else {
+                        note_search_area.input(input);
+                        autocomplete_cursor = (0, 0);
+                    }
+                }
+            }
+        }
+
+        Ok("".to_string())
+    }
+
     fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
         let mut search_area = TextArea::default();
         search_area.set_cursor_line_style(Style::default());
@@ -448,7 +554,6 @@ impl Vault<'_> {
             self.terminal
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
-
 
                     if self.homepage.is_open() {
                         frame.render_widget(&self.homepage.textarea, chunks[1]);
@@ -641,7 +746,7 @@ impl Vault<'_> {
 
                 if !self.homepage.is_open() && self.tabs[self.current_tab].textareas.len() == 0 {
                     self.homepage.open();
-                } 
+                }
             }
             Command::PreviousBuffer => {
                 if self.homepage.is_open() {
@@ -662,6 +767,16 @@ impl Vault<'_> {
                         tab.current += 1;
                     }
                 }
+            }
+            Command::NoteSearch => {
+                let inner_link = self.render_file_search()?;
+
+                if inner_link == "" {
+                    return Ok(());
+                }
+
+                let inner_link = &inner_link[0..inner_link.len()];
+                self.open_file(PathBuf::from(inner_link))?;
             }
             Command::None => (),
         }

@@ -10,6 +10,7 @@ pub enum Command {
     FocusTab(u8),
     NextBuffer,
     PreviousBuffer,
+    NoteSearch,
     None,
 }
 
@@ -26,6 +27,7 @@ impl Command {
             "new tab" | "nt" => Command::NewTab,
             "next buffer" | "nb" => Command::NextBuffer,
             "previous buffer" | "prev buffer" | "pb" => Command::PreviousBuffer,
+            "note search" | "search" | "ns" => Command::NoteSearch,
             _ => Command::None,
         }
     }
