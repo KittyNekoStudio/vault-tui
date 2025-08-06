@@ -1,6 +1,5 @@
 mod command;
 mod editor;
-mod homepage;
 mod vault;
 mod vim;
 

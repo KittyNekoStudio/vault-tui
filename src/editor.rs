@@ -16,9 +16,13 @@ pub struct Editor<'a> {
 
 impl Editor<'_> {
     pub fn new() -> Self {
+        let textarea = TextArea::new(vec![
+            "Press ':' and type search to search for notes".to_string(),
+        ]);
+        let path = PathBuf::from("vault-tui-intro-buffer");
         Self {
-            textareas: Vec::new(),
-            paths: Vec::new(),
+            textareas: vec![textarea],
+            paths: vec![path],
             current: 0,
         }
     }
@@ -55,10 +59,12 @@ impl Editor<'_> {
     }
 
     pub fn save(&self) -> io::Result<()> {
-        let mut file = BufWriter::new(File::create(&self.path())?);
-        for line in self.textareas[self.current].lines() {
-            file.write_all(line.as_bytes())?;
-            file.write_all(b"\n")?;
+        if self.paths[self.current] != PathBuf::from("vault-tui-intro-buffer") {
+            let mut file = BufWriter::new(File::create(&self.path())?);
+            for line in self.textareas[self.current].lines() {
+                file.write_all(line.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
         }
 
         Ok(())

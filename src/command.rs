@@ -2,7 +2,6 @@ pub enum Command {
     Quit,
     Save,
     SaveQuit,
-    Home,
     NewNote,
     FollowLink,
     InsertTemplate,
@@ -10,7 +9,7 @@ pub enum Command {
     FocusTab(u8),
     NextBuffer,
     PreviousBuffer,
-    NoteSearch,
+    SearchNote,
     None,
 }
 
@@ -20,14 +19,13 @@ impl Command {
             "quit" | "q" => Command::Quit,
             "write" | "w" | "save" => Command::Save,
             "wq" => Command::SaveQuit,
-            "home" | "h" => Command::Home,
             "new note" | "nn" => Command::NewNote,
             "follow" | "follow link" | "fl" => Command::FollowLink,
             "insert template" | "itm" => Command::InsertTemplate,
             "new tab" | "nt" => Command::NewTab,
             "next buffer" | "nb" => Command::NextBuffer,
             "previous buffer" | "prev buffer" | "pb" => Command::PreviousBuffer,
-            "note search" | "search" | "ns" => Command::NoteSearch,
+            "search note" | "search" | "sn" => Command::SearchNote,
             _ => Command::None,
         }
     }

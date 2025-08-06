@@ -19,14 +19,12 @@ use tui_textarea::{Input, Key, TextArea};
 use crate::{
     command::Command,
     editor::Editor,
-    homepage::{HomePage, InputResult},
     vim::{Mode, Search, Transition, Vim},
 };
 
 #[derive(Debug)]
 pub struct Vault<'a> {
     terminal: DefaultTerminal,
-    homepage: HomePage<'a>,
     tabs: Vec<Editor<'a>>,
     current_tab: usize,
     vim: Vim,
@@ -40,7 +38,6 @@ impl Vault<'_> {
 
         Vault {
             terminal: ratatui::init(),
-            homepage: HomePage::new(&file_paths),
             tabs: vec![Editor::new()],
             current_tab: 0,
             vim: Vim::new(Mode::Normal),
@@ -55,7 +52,6 @@ impl Vault<'_> {
         if self.file_paths.len() == 1 {
             self.open_file(self.file_paths[0].clone())?;
             self.file_paths = get_all_filenames(true).unwrap();
-            self.homepage.update_homepage_files(&self.file_paths);
         }
 
         let layout = Layout::default()
@@ -84,11 +80,7 @@ impl Vault<'_> {
             self.terminal.draw(|frame| {
                 let chunks = layout.split(frame.area());
 
-                if self.homepage.is_open() {
-                    frame.render_widget(&self.homepage.textarea, frame.area());
-                } else {
-                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
-                }
+                frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
                 frame.render_widget(Paragraph::new(status_bar), chunks[1]);
             })?;
 
@@ -99,124 +91,83 @@ impl Vault<'_> {
     }
 
     fn input(&mut self) -> io::Result<()> {
-        if self.homepage.is_open() {
-            match self.homepage.input(&self.file_paths)? {
-                InputResult::Continue => (),
-                InputResult::File(filename) => {
-                    return self.open_file(filename);
-                }
-                InputResult::Search(search) => match search {
-                    Search::Open => {
-                        let previous_search = {
-                            if self.homepage.textarea.search_pattern().is_some() {
-                                self.homepage
-                                    .textarea
-                                    .search_pattern()
-                                    .unwrap()
-                                    .as_str()
-                                    .to_string()
-                            } else {
-                                "".to_string()
-                            }
-                        };
-                        self.vim = self.render_search_area(previous_search)?;
-                    }
-                    Search::Forward => {
-                        self.homepage.textarea.search_forward(false);
-                    }
-                    Search::Backward => {
-                        self.homepage.textarea.search_back(false);
-                    }
-                },
-                InputResult::Command => {
-                    _ = self.render_command_area()?;
-                }
-                InputResult::CommandExec(command) => {
-                    self.exec_command(command)?;
-                }
+        let tab = &mut self.tabs[self.current_tab];
+        self.vim = match self
+            .vim
+            .exec(read()?.into(), &mut tab.textareas[tab.current])
+        {
+            Transition::Mode(mode) if self.vim.mode != mode => Vim::new(mode),
+            Transition::Nop | Transition::Mode(_) => {
+                return Ok(());
             }
-        } else {
-            let tab = &mut self.tabs[self.current_tab];
-            self.vim = match self.vim.exec(
-                read()?.into(),
-                &mut tab.textareas[tab.current],
-                &self.file_paths,
-            ) {
-                Transition::Mode(mode) if self.vim.mode != mode => Vim::new(mode),
-                Transition::Nop | Transition::Mode(_) | Transition::InputResult(_) => {
-                    return Ok(());
-                }
-                Transition::Pending(input) => self.vim.with_pending(input),
-                Transition::CommandMode => self.render_command_area()?,
-                Transition::CommandExec(command) => {
-                    self.exec_command(command)?;
-                    return Ok(());
-                }
-                Transition::Search(search) => match search {
-                    Search::Open => {
-                        let previous_search = {
-                            if self.tabs[self.current_tab]
+            Transition::Pending(input) => self.vim.with_pending(input),
+            Transition::CommandMode => self.render_command_area()?,
+            Transition::CommandExec(command) => {
+                self.exec_command(command)?;
+                return Ok(());
+            }
+            Transition::Search(search) => match search {
+                Search::Open => {
+                    let previous_search = {
+                        if self.tabs[self.current_tab]
+                            .textarea()
+                            .search_pattern()
+                            .is_some()
+                        {
+                            self.tabs[self.current_tab]
                                 .textarea()
                                 .search_pattern()
-                                .is_some()
-                            {
-                                self.tabs[self.current_tab]
-                                    .textarea()
-                                    .search_pattern()
-                                    .unwrap()
-                                    .as_str()
-                                    .to_string()
-                            } else {
-                                "".to_string()
-                            }
-                        };
-                        self.render_search_area(previous_search)?;
-                        return Ok(());
-                    }
-                    Search::Forward => {
-                        let tab = &mut self.tabs[self.current_tab];
-                        tab.textareas[tab.current].search_forward(false);
-                        return Ok(());
-                    }
-                    Search::Backward => {
-                        let tab = &mut self.tabs[self.current_tab];
-                        tab.textareas[tab.current].search_back(false);
-                        return Ok(());
-                    }
-                },
-                Transition::AutoComplete => {
-                    let mut link = "".to_string();
-                    let (row, _) = self.tabs[self.current_tab].textarea().cursor();
-                    let lines = self.tabs[self.current_tab].textarea().lines();
-
-                    if lines[row].contains("[[") && !lines[row].contains("]]") {
-                        let inner_link = self.render_autocomplete()?;
-                        if inner_link == "" {
-                            return Ok(());
+                                .unwrap()
+                                .as_str()
+                                .to_string()
+                        } else {
+                            "".to_string()
                         }
-                        // Remove the .md file extension
-                        let inner_link = &inner_link[0..inner_link.len() - 3];
-                        let inner_link = inner_link.to_string() + "]]";
-                        link = inner_link;
-                    }
-                    let (row, _) = self.tabs[self.current_tab].textarea().cursor();
-                    let lines = self.tabs[self.current_tab].textarea().lines();
-                    let start = lines[row].to_string().find("[[").unwrap() + 2;
-                    let current = &mut self.tabs[self.current_tab];
-                    current.textareas[current.current]
-                        .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
-                    current.textareas[current.current].delete_line_by_end();
-                    current.textareas[current.current].insert_str(link);
+                    };
+                    self.render_search_area(previous_search)?;
                     return Ok(());
                 }
+                Search::Forward => {
+                    let tab = &mut self.tabs[self.current_tab];
+                    tab.textareas[tab.current].search_forward(false);
+                    return Ok(());
+                }
+                Search::Backward => {
+                    let tab = &mut self.tabs[self.current_tab];
+                    tab.textareas[tab.current].search_back(false);
+                    return Ok(());
+                }
+            },
+            Transition::AutoComplete => {
+                let mut link = "".to_string();
+                let (row, _) = self.tabs[self.current_tab].textarea().cursor();
+                let lines = self.tabs[self.current_tab].textarea().lines();
+
+                if lines[row].contains("[[") && !lines[row].contains("]]") {
+                    let inner_link = self.render_autocomplete()?;
+                    if inner_link == "" {
+                        return Ok(());
+                    }
+                    // Remove the .md file extension
+                    let inner_link = &inner_link[0..inner_link.len() - 3];
+                    let inner_link = inner_link.to_string() + "]]";
+                    link = inner_link;
+                }
+                let (row, _) = self.tabs[self.current_tab].textarea().cursor();
+                let lines = self.tabs[self.current_tab].textarea().lines();
+                let start = lines[row].to_string().find("[[").unwrap() + 2;
+                let current = &mut self.tabs[self.current_tab];
+                current.textareas[current.current]
+                    .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
+                current.textareas[current.current].delete_line_by_end();
+                current.textareas[current.current].insert_str(link);
+                return Ok(());
             }
-        }
+        };
         Ok(())
     }
 
     fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
-        self.homepage.close();
-
         for i in 0..self.tabs[self.current_tab].textareas.len() {
             let tab = &mut self.tabs[self.current_tab];
             if &tab.paths[i] == &path {
@@ -260,11 +211,7 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
-                    if self.homepage.is_open() {
-                        frame.render_widget(&self.homepage.textarea, chunks[1]);
-                    } else {
-                        frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
-                    }
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
 
                     frame.render_widget(&command_area, chunks[0]);
                 })
@@ -490,20 +437,14 @@ impl Vault<'_> {
             self.terminal
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
-                    if self.homepage.is_open() {
-                        frame.render_widget(&self.homepage.textarea, chunks[1]);
-                    } else {
-                        let tab = &self.tabs[self.current_tab];
-                        frame.render_widget(&tab.textareas[tab.current], chunks[1]);
-                    }
+                    let tab = &self.tabs[self.current_tab];
+                    frame.render_widget(&tab.textareas[tab.current], chunks[1]);
 
                     frame.render_widget(&search_area, chunks[0]);
                 })
                 .unwrap();
 
-            let textarea: &mut TextArea = if self.homepage.is_open() {
-                &mut self.homepage.textarea
-            } else {
+            let textarea: &mut TextArea = {
                 let tab = &mut self.tabs[self.current_tab];
                 &mut tab.textareas[tab.current]
             };
@@ -555,12 +496,8 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
-                    if self.homepage.is_open() {
-                        frame.render_widget(&self.homepage.textarea, chunks[1]);
-                    } else {
-                        let tab = &self.tabs[self.current_tab];
-                        frame.render_widget(&tab.textareas[tab.current], chunks[1]);
-                    }
+                    let tab = &self.tabs[self.current_tab];
+                    frame.render_widget(&tab.textareas[tab.current], chunks[1]);
 
                     frame.render_widget(&note_name_area, chunks[0]);
                 })
@@ -581,7 +518,6 @@ impl Vault<'_> {
                     File::create(&pathbuf)?;
                     self.open_file(pathbuf.clone())?;
                     self.file_paths.push(pathbuf);
-                    self.homepage.update_homepage_files(&self.file_paths);
 
                     break;
                 }
@@ -695,9 +631,6 @@ impl Vault<'_> {
                     }
                 }
             }
-            Command::Home => {
-                self.homepage.open();
-            }
             Command::NewNote => {
                 self.new_note()?;
             }
@@ -729,7 +662,6 @@ impl Vault<'_> {
             Command::NewTab => {
                 self.tabs.push(Editor::new());
                 self.current_tab += 1;
-                self.homepage.open();
             }
             Command::FocusTab(tab) => {
                 let move_by: i32 = if tab == 0 { -1 } else { 1 };
@@ -743,32 +675,20 @@ impl Vault<'_> {
                 } else {
                     self.current_tab = tab as usize;
                 }
-
-                if !self.homepage.is_open() && self.tabs[self.current_tab].textareas.len() == 0 {
-                    self.homepage.open();
-                }
             }
             Command::PreviousBuffer => {
-                if self.homepage.is_open() {
-                    self.homepage.close();
-                } else {
-                    let tab = &mut self.tabs[self.current_tab];
-                    if tab.current != 0 {
-                        tab.current -= 1;
-                    }
+                let tab = &mut self.tabs[self.current_tab];
+                if tab.current != 0 {
+                    tab.current -= 1;
                 }
             }
             Command::NextBuffer => {
-                if self.homepage.is_open() {
-                    self.homepage.close();
-                } else {
-                    let tab = &mut self.tabs[self.current_tab];
-                    if tab.current != tab.textareas.len() - 1 {
-                        tab.current += 1;
-                    }
+                let tab = &mut self.tabs[self.current_tab];
+                if tab.current != tab.textareas.len() - 1 {
+                    tab.current += 1;
                 }
             }
-            Command::NoteSearch => {
+            Command::SearchNote => {
                 let inner_link = self.render_file_search()?;
 
                 if inner_link == "" {

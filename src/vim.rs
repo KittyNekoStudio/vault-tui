@@ -1,15 +1,12 @@
-use std::path::PathBuf;
-
 use tui_textarea::{CursorMove, Input, Key, Scrolling, TextArea};
 
-use crate::{command::Command, homepage::InputResult};
+use crate::command::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Insert,
     Normal,
     Visual,
-    HomePage,
     Operator(char),
 }
 
@@ -17,7 +14,6 @@ pub enum Transition {
     Nop,
     Mode(Mode),
     Pending(Input),
-    InputResult(InputResult),
     CommandMode,
     CommandExec(Command),
     Search(Search),
@@ -51,18 +47,9 @@ impl Vim {
         }
     }
 
-    pub fn exec(
-        &self,
-        input: Input,
-        textarea: &mut TextArea,
-        file_paths: &Vec<PathBuf>,
-    ) -> Transition {
+    pub fn exec(&self, input: Input, textarea: &mut TextArea) -> Transition {
         if input.key == Key::Null {
             return Transition::Nop;
-        }
-
-        if let Mode::HomePage = self.mode {
-            return Transition::InputResult(self.exec_homepage(input, textarea, file_paths));
         }
 
         match self.mode {
@@ -402,170 +389,6 @@ impl Vim {
                     Transition::Mode(Mode::Insert)
                 }
             },
-            Mode::HomePage => Transition::Nop,
-        }
-    }
-
-    fn exec_homepage(
-        &self,
-        input: Input,
-        textarea: &mut TextArea,
-        file_paths: &Vec<PathBuf>,
-    ) -> InputResult {
-        match input {
-            Input {
-                key: Key::Char('h'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Back);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('j'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Down);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('k'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Up);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('l'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Forward);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('w'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::WordForward);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('e'),
-                ctrl: false,
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::WordEnd);
-                if matches!(self.mode, Mode::Operator(_)) {
-                    textarea.move_cursor(CursorMove::Forward); // Include the text under the cursor
-                }
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('b'),
-                ctrl: false,
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::WordBack);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char(':'),
-                ..
-            } => InputResult::Command,
-            Input {
-                key: Key::Char('^'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Head);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('$'),
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::End);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('d'),
-                ctrl: true,
-                ..
-            } => {
-                textarea.scroll(Scrolling::HalfPageDown);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('u'),
-                ctrl: true,
-                ..
-            } => {
-                textarea.scroll(Scrolling::HalfPageUp);
-                InputResult::Continue
-            }
-            // TODO: fix this to use gg instead of g
-            Input {
-                key: Key::Char('g'),
-                ctrl: false,
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Top);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('G'),
-                ctrl: false,
-                ..
-            } => {
-                textarea.move_cursor(CursorMove::Bottom);
-                InputResult::Continue
-            }
-            Input {
-                key: Key::Char('/'),
-                ..
-            } => {
-                return InputResult::Search(Search::Open);
-            }
-            Input {
-                key: Key::Char('n'),
-                shift: false,
-                ..
-            } => {
-                return InputResult::Search(Search::Forward);
-            }
-            Input {
-                key: Key::Char('N'),
-                ..
-            } => {
-                return InputResult::Search(Search::Backward);
-            }
-            Input { key: Key::Up, .. } => {
-                return InputResult::CommandExec(Command::NextBuffer);
-            }
-            Input { key: Key::Down, .. } => {
-                return InputResult::CommandExec(Command::PreviousBuffer);
-            }
-            Input { key: Key::Left, .. } => {
-                return InputResult::CommandExec(Command::FocusTab(0));
-            }
-            Input {
-                key: Key::Right, ..
-            } => {
-                return InputResult::CommandExec(Command::FocusTab(1));
-            }
-            Input {
-                key: Key::Char('t'),
-                ctrl: true,
-                ..
-            } => {
-                return InputResult::CommandExec(Command::NewTab);
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                let (row, _) = textarea.cursor();
-                let selected_file = file_paths[row].clone();
-                InputResult::File(selected_file)
-            }
-            _ => InputResult::Continue,
         }
     }
 }
