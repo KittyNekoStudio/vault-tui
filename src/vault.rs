@@ -8,7 +8,11 @@ use chrono::Local;
 use crossterm::event::{Event, read};
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect}, style::{Modifier, Style}, text::{Line, Span}, widgets::{Block, Clear, Paragraph}, DefaultTerminal
+    DefaultTerminal,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Clear, Paragraph},
 };
 use tui_textarea::{Input, Key, TextArea};
 
@@ -511,7 +515,11 @@ impl Vault<'_> {
                     let x = frame.area().width - w;
                     let y = frame.area().y;
                     let rect = Rect::new(x, y, w, h);
-                    let tab = &self.tabs[self.current_tab];
+                    let tab = &mut self.tabs[self.current_tab];
+
+                    if tab.current >= tab.textareas.len() {
+                        tab.current -= 1;
+                    }
 
                     frame.render_widget(&tab.textareas[tab.current], frame.area());
                     frame.render_widget(Clear, rect);
@@ -714,10 +722,8 @@ impl Vault<'_> {
                         autocomplete_cursor = (0, 0);
                     }
                 }
-
             }
         }
-
 
         Ok("".to_string())
     }
@@ -924,7 +930,7 @@ fn get_date(date: &str) -> String {
     return_date
 }
 
-fn get_formated_date(string: String) -> String {
+pub fn get_formated_date(string: String) -> String {
     let mut new_string_list: Vec<String> = Vec::new();
 
     // TODO: Dates cannot have spaces as I split the string by spaces

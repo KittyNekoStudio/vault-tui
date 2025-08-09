@@ -7,7 +7,7 @@ use std::{
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
-use crate::error::VaultError;
+use crate::{error::VaultError, vault::get_formated_date};
 
 #[derive(Debug, Clone)]
 pub struct Editor<'a> {
@@ -44,11 +44,24 @@ impl Editor<'_> {
 
         let file = File::open(&path);
 
-        if file.is_err() {
-            return Err(VaultError::OpenFile(
-                "Failed to open: ".to_string() + path.to_str().unwrap(),
-            ));
-        }
+        let (file, path) = if file.is_err() {
+            // TODO: Reuse with Vault::new_note()
+            let filename =
+                get_formated_date("{{date:YMMDDHHmm-}}".to_string()) + path.to_str().unwrap();
+            let filename = filename.replace(" ", "-");
+
+            let pathbuf = PathBuf::from(filename);
+            let file = File::create_new(pathbuf.clone());
+
+            if file.is_err() {
+                return Err(VaultError::OpenFile(
+                    "Failed to open: ".to_string() + path.to_str().unwrap(),
+                ));
+            }
+            (file, pathbuf)
+        } else {
+            (file, path)
+        };
 
         let file = file.unwrap();
 
