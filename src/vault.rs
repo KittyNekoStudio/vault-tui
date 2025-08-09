@@ -782,6 +782,7 @@ impl Vault<'_> {
                 }
             }
             Command::InsertTemplate => {
+                self.file_paths = get_all_filenames(true).unwrap();
                 let result = self.insert_template();
                 self.handle_error(result);
             }
@@ -815,6 +816,7 @@ impl Vault<'_> {
                 }
             }
             Command::SearchNote => {
+                self.file_paths = get_all_filenames(true).unwrap();
                 let inner_link = self.render_file_search()?;
 
                 if inner_link == "" {
