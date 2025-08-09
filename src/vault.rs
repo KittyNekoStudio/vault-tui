@@ -589,44 +589,80 @@ impl Vault<'_> {
         Ok(())
     }
 
-    fn insert_template(&mut self) -> Result<(), VaultError> {
+    fn insert_template(&mut self) -> Result<String, VaultError> {
         let mut template_name_area = TextArea::default();
         template_name_area.set_cursor_line_style(Style::default());
-        template_name_area.set_block(Block::bordered().title("Template Name"));
+        template_name_area.set_block(Block::bordered().title("Note Search"));
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    // Layout for note name area
-                    // As tall as the cursor
                     Constraint::Length(3),
-                    // The area for the editor
-                    // Takes up the rest of the area
+                    Constraint::Length(10),
                     Constraint::Min(1),
                 ]
                 .as_ref(),
             );
 
+        let mut autocomplete_cursor = (0, 0);
         loop {
+            let scores = {
+                let mut scores: Vec<(String, i64)> = Vec::new();
+                let lines = template_name_area.lines();
+
+                let matcher = SkimMatcherV2::default();
+                for file in &self.file_paths {
+                    let to_match = &lines[0];
+                    let matched = matcher.fuzzy_match(file.to_str().unwrap(), to_match);
+                    if matched.is_some() {
+                        scores.push((file.to_str().unwrap().to_string(), matched.unwrap()));
+                    } else {
+                        continue;
+                    }
+                }
+                scores.sort();
+                scores.reverse();
+                scores
+            };
+
+            let mut autocomplete_area = TextArea::default();
+            autocomplete_area.set_cursor_line_style(Style::default());
+            autocomplete_area.set_block(Block::bordered());
+
+            for (name, _) in scores {
+                autocomplete_area.insert_str(name);
+                autocomplete_area.insert_newline();
+            }
+
+            autocomplete_area.move_cursor(tui_textarea::CursorMove::Jump(
+                autocomplete_cursor.0,
+                autocomplete_cursor.1,
+            ));
+
             self.terminal
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
 
                     frame.render_widget(&template_name_area, chunks[0]);
-                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[1]);
+                    frame.render_widget(&autocomplete_area, chunks[1]);
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[2]);
                 })
                 .unwrap();
 
             match Self::read()?.into() {
                 Input {
                     key: Key::Enter, ..
+                }
+                | Input {
+                    key: Key::Char('y'),
+                    ctrl: true,
+                    ..
                 } => {
-                    // Make it so the user does not need to provide the file extension
-                    template_name_area.insert_str(".md");
+                    let (row, _) = autocomplete_area.cursor();
+                    let lines = autocomplete_area.lines();
 
-                    let input = template_name_area.lines();
-                    let pathbuf = PathBuf::from(&input[0]);
+                    let pathbuf = PathBuf::from(&lines[row]);
 
                     self.file_paths.push(pathbuf.clone());
 
@@ -655,12 +691,35 @@ impl Vault<'_> {
                 }
                 Input { key: Key::Esc, .. } => break,
                 input => {
-                    template_name_area.input(input);
+                    if input
+                        == (Input {
+                            key: Key::Char('n'),
+                            ctrl: true,
+                            alt: false,
+                            shift: false,
+                        })
+                        || input
+                            == (Input {
+                                key: Key::Char('p'),
+                                ctrl: true,
+                                alt: false,
+                                shift: false,
+                            })
+                    {
+                        autocomplete_area.input(input);
+                        let (row, col) = autocomplete_area.cursor();
+                        autocomplete_cursor = (row as u16, col as u16);
+                    } else {
+                        template_name_area.input(input);
+                        autocomplete_cursor = (0, 0);
+                    }
                 }
+
             }
         }
 
-        Ok(())
+
+        Ok("".to_string())
     }
 
     fn exec_command(&mut self, command: Command) -> Result<(), VaultError> {
