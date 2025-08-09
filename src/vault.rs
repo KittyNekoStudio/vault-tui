@@ -5,20 +5,17 @@ use std::{
 };
 
 use chrono::Local;
-use crossterm::event::read;
+use crossterm::event::{Event, read};
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{
-    DefaultTerminal,
-    layout::{Constraint, Direction, Layout},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Paragraph},
+    layout::{Constraint, Direction, Layout, Rect}, style::{Modifier, Style}, text::{Line, Span}, widgets::{Block, Clear, Paragraph}, DefaultTerminal
 };
 use tui_textarea::{Input, Key, TextArea};
 
 use crate::{
     command::Command,
     editor::Editor,
+    error::VaultError,
     vim::{Mode, Search, Transition, Vim},
 };
 
@@ -46,11 +43,12 @@ impl Vault<'_> {
         }
     }
 
-    pub fn run(&mut self) -> io::Result<()> {
+    pub fn run(&mut self) {
         // When provided with a file instead of a dir
         // Open the file then update self.file_paths and the homepage with pwd
         if self.file_paths.len() == 1 {
-            self.open_file(self.file_paths[0].clone())?;
+            let result = self.open_file(self.file_paths[0].clone());
+            self.handle_error(result);
             self.file_paths = get_all_filenames(true).unwrap();
         }
 
@@ -77,34 +75,60 @@ impl Vault<'_> {
                 Line::from(status_bar)
             };
 
-            self.terminal.draw(|frame| {
-                let chunks = layout.split(frame.area());
+            // TODO: handle this error
+            self.terminal
+                .draw(|frame| {
+                    let chunks = layout.split(frame.area());
 
-                frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
-                frame.render_widget(Paragraph::new(status_bar), chunks[1]);
-            })?;
+                    frame.render_widget(self.tabs[self.current_tab].textarea(), chunks[0]);
+                    frame.render_widget(Paragraph::new(status_bar), chunks[1]);
+                })
+                .unwrap();
 
-            self.input()?;
+            let result = self.input();
+            self.handle_error(result);
         }
-
-        Ok(())
     }
 
-    fn input(&mut self) -> io::Result<()> {
+    fn read() -> Result<Event, VaultError> {
+        let input = read();
+        if input.is_err() {
+            return Err(VaultError::Input);
+        }
+        Ok(input.unwrap())
+    }
+
+    fn handle_error<T>(&mut self, result: Result<T, VaultError>) {
+        if result.is_err() {
+            match result.err().unwrap() {
+                VaultError::OpenFile(filepath) => {
+                    let result = self.render_notification_area(filepath);
+                    self.handle_error(result);
+                }
+                VaultError::Input => {
+                    let result = self.render_notification_area("Failed to read input".to_string());
+                    self.handle_error(result);
+                }
+            }
+        }
+    }
+
+    fn input(&mut self) -> Result<(), VaultError> {
         let tab = &mut self.tabs[self.current_tab];
         self.vim = match self
             .vim
-            .exec(read()?.into(), &mut tab.textareas[tab.current])
+            .exec(Self::read()?.into(), &mut tab.textareas[tab.current])
         {
             Transition::Mode(mode) if self.vim.mode != mode => Vim::new(mode),
-            Transition::Nop | Transition::Mode(_) => {
-                return Ok(());
-            }
+            Transition::Nop | Transition::Mode(_) => self.vim.clone(),
             Transition::Pending(input) => self.vim.with_pending(input),
-            Transition::CommandMode => self.render_command_area()?,
+            Transition::CommandMode => {
+                let vim = self.render_command_area()?;
+                vim
+            }
             Transition::CommandExec(command) => {
                 self.exec_command(command)?;
-                return Ok(());
+                self.vim.clone()
             }
             Transition::Search(search) => match search {
                 Search::Open => {
@@ -167,7 +191,7 @@ impl Vault<'_> {
         Ok(())
     }
 
-    fn open_file(&mut self, path: PathBuf) -> io::Result<()> {
+    fn open_file(&mut self, path: PathBuf) -> Result<(), VaultError> {
         for i in 0..self.tabs[self.current_tab].textareas.len() {
             let tab = &mut self.tabs[self.current_tab];
             if &tab.paths[i] == &path {
@@ -181,13 +205,13 @@ impl Vault<'_> {
         Ok(())
     }
 
-    fn open_template(path: PathBuf) -> io::Result<Editor<'static>> {
+    fn open_template(path: PathBuf) -> Result<Editor<'static>, VaultError> {
         let mut editor = Editor::new();
         editor.open(path)?;
         Ok(editor)
     }
 
-    fn render_command_area(&mut self) -> io::Result<Vim> {
+    fn render_command_area(&mut self) -> Result<Vim, VaultError> {
         let mut command_area = TextArea::default();
         command_area.set_cursor_line_style(Style::default());
         command_area.set_block(Block::bordered().title("Command"));
@@ -217,7 +241,7 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input { key: Key::Esc, .. } => break,
                 Input {
                     key: Key::Enter, ..
@@ -235,7 +259,7 @@ impl Vault<'_> {
         Ok(Vim::new(Mode::Normal))
     }
 
-    fn render_autocomplete(&mut self) -> io::Result<String> {
+    fn render_autocomplete(&mut self) -> Result<String, VaultError> {
         let scores = {
             let mut scores: Vec<(String, i64)> = Vec::new();
             let editor = &self.tabs[self.current_tab];
@@ -283,7 +307,7 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input { key: Key::Esc, .. } => break,
                 Input {
                     key: Key::Enter, ..
@@ -307,7 +331,7 @@ impl Vault<'_> {
         Ok("".to_string())
     }
 
-    fn render_file_search(&mut self) -> io::Result<String> {
+    fn render_file_search(&mut self) -> Result<String, VaultError> {
         let mut note_search_area = TextArea::default();
         note_search_area.set_cursor_line_style(Style::default());
         note_search_area.set_block(Block::bordered().title("Note Search"));
@@ -368,7 +392,7 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input { key: Key::Esc, .. } => break,
                 Input {
                     key: Key::Enter, ..
@@ -413,7 +437,7 @@ impl Vault<'_> {
         Ok("".to_string())
     }
 
-    fn render_search_area(&mut self, previous_search: String) -> io::Result<Vim> {
+    fn render_search_area(&mut self, previous_search: String) -> Result<Vim, VaultError> {
         let mut search_area = TextArea::default();
         search_area.set_cursor_line_style(Style::default());
 
@@ -438,8 +462,8 @@ impl Vault<'_> {
                 .draw(|frame| {
                     let chunks = layout.split(frame.area());
                     let tab = &self.tabs[self.current_tab];
-                    frame.render_widget(&tab.textareas[tab.current], chunks[1]);
 
+                    frame.render_widget(&tab.textareas[tab.current], chunks[1]);
                     frame.render_widget(&search_area, chunks[0]);
                 })
                 .unwrap();
@@ -449,7 +473,7 @@ impl Vault<'_> {
                 &mut tab.textareas[tab.current]
             };
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input {
                     key: Key::Enter, ..
                 } => {
@@ -472,7 +496,41 @@ impl Vault<'_> {
         Ok(Vim::new(Mode::Normal))
     }
 
-    fn new_note(&mut self) -> io::Result<()> {
+    fn render_notification_area(&mut self, notification: String) -> Result<(), VaultError> {
+        let mut notification_area = TextArea::default();
+
+        notification_area.set_cursor_line_style(Style::default());
+        notification_area.set_block(Block::bordered().title("Notification"));
+        notification_area.insert_str(notification);
+
+        loop {
+            self.terminal
+                .draw(|frame| {
+                    let w = 50;
+                    let h = 5;
+                    let x = frame.area().width - w;
+                    let y = frame.area().y;
+                    let rect = Rect::new(x, y, w, h);
+                    let tab = &self.tabs[self.current_tab];
+
+                    frame.render_widget(&tab.textareas[tab.current], frame.area());
+                    frame.render_widget(Clear, rect);
+                    frame.render_widget(&notification_area, rect);
+                })
+                .unwrap();
+
+            match Self::read()?.into() {
+                Input { key: Key::Esc, .. } => {
+                    break;
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn new_note(&mut self) -> Result<(), VaultError> {
         let mut note_name_area = TextArea::default();
         note_name_area.set_cursor_line_style(Style::default());
         note_name_area.set_block(Block::bordered().title("Note Name"));
@@ -503,19 +561,19 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input {
                     key: Key::Enter, ..
                 } => {
                     // Make it so the user does not need to provide the file extension
                     note_name_area.insert_str(".md");
 
-                    let filename = get_formated_date("{{date:YMMDDHHmm-}}".to_string())?
+                    let filename = get_formated_date("{{date:YMMDDHHmm-}}".to_string())
                         + &note_name_area.lines()[0];
 
                     let pathbuf = PathBuf::from(filename);
 
-                    File::create(&pathbuf)?;
+                    File::create(&pathbuf).unwrap();
                     self.open_file(pathbuf.clone())?;
                     self.file_paths.push(pathbuf);
 
@@ -531,7 +589,7 @@ impl Vault<'_> {
         Ok(())
     }
 
-    fn insert_template(&mut self) -> io::Result<()> {
+    fn insert_template(&mut self) -> Result<(), VaultError> {
         let mut template_name_area = TextArea::default();
         template_name_area.set_cursor_line_style(Style::default());
         template_name_area.set_block(Block::bordered().title("Template Name"));
@@ -560,7 +618,7 @@ impl Vault<'_> {
                 })
                 .unwrap();
 
-            match read()?.into() {
+            match Self::read()?.into() {
                 Input {
                     key: Key::Enter, ..
                 } => {
@@ -585,7 +643,7 @@ impl Vault<'_> {
                         }
 
                         if line.contains("{{date:") {
-                            let inner = get_formated_date(line.to_string())?;
+                            let inner = get_formated_date(line.to_string());
                             line = inner;
                         }
 
@@ -605,7 +663,7 @@ impl Vault<'_> {
         Ok(())
     }
 
-    fn exec_command(&mut self, command: Command) -> io::Result<()> {
+    fn exec_command(&mut self, command: Command) -> Result<(), VaultError> {
         match command {
             Command::Quit => {
                 self.tabs.remove(self.current_tab);
@@ -632,7 +690,8 @@ impl Vault<'_> {
                 }
             }
             Command::NewNote => {
-                self.new_note()?;
+                let result = self.new_note();
+                self.handle_error(result);
             }
             Command::FollowLink => {
                 let tab = &self.tabs[self.current_tab];
@@ -653,11 +712,13 @@ impl Vault<'_> {
                     let inside_filename = &current_line[bracket_start_idx..bracket_end_idx];
 
                     let filename = inside_filename.split("|").collect::<Vec<&str>>()[0];
-                    self.open_file(PathBuf::from(filename.to_string() + ".md"))?;
+                    let result = self.open_file(PathBuf::from(filename.to_string() + ".md"));
+                    self.handle_error(result);
                 }
             }
             Command::InsertTemplate => {
-                self.insert_template()?;
+                let result = self.insert_template();
+                self.handle_error(result);
             }
             Command::NewTab => {
                 self.tabs.push(Editor::new());
@@ -696,7 +757,9 @@ impl Vault<'_> {
                 }
 
                 let inner_link = &inner_link[0..inner_link.len()];
-                self.open_file(PathBuf::from(inner_link))?;
+
+                let result = self.open_file(PathBuf::from(inner_link));
+                self.handle_error(result);
             }
             Command::None => (),
         }
@@ -799,11 +862,10 @@ fn get_date(date: &str) -> String {
         }
     }
 
-    //todo!("{}", return_date);
     return_date
 }
 
-fn get_formated_date(string: String) -> io::Result<String> {
+fn get_formated_date(string: String) -> String {
     let mut new_string_list: Vec<String> = Vec::new();
 
     // TODO: Dates cannot have spaces as I split the string by spaces
@@ -828,5 +890,5 @@ fn get_formated_date(string: String) -> io::Result<String> {
         new_string_list.push(item);
     }
 
-    Ok(new_string_list.join(" "))
+    new_string_list.join(" ")
 }

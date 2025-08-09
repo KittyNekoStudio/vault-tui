@@ -1,11 +1,11 @@
 mod command;
 mod editor;
+mod error;
 mod vault;
 mod vim;
 
-fn main() -> std::io::Result<()> {
+fn main() {
     let mut vault = vault::Vault::new();
-    let result = vault.run();
+    vault.run();
     ratatui::restore();
-    result
 }

@@ -26,7 +26,7 @@ pub enum Search {
     Backward,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vim {
     pub mode: Mode,
     pending: Input,

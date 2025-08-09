@@ -1,11 +1,13 @@
 use std::{
     fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
 };
 
 use ratatui::style::Style;
 use tui_textarea::TextArea;
+
+use crate::error::VaultError;
 
 #[derive(Debug, Clone)]
 pub struct Editor<'a> {
@@ -35,19 +37,27 @@ impl Editor<'_> {
         &self.textareas[self.current]
     }
 
-    pub fn open(&mut self, path: PathBuf) -> io::Result<()> {
+    pub fn open(&mut self, path: PathBuf) -> Result<(), VaultError> {
         if self.textareas.len() != 0 {
             self.current = self.textareas.len();
         }
 
-        let file = File::open(&path)?;
+        let file = File::open(&path);
+
+        if file.is_err() {
+            return Err(VaultError::OpenFile(
+                "Failed to open: ".to_string() + path.to_str().unwrap(),
+            ));
+        }
+
+        let file = file.unwrap();
+
         let reader = BufReader::new(file);
 
         let mut lines = Vec::new();
 
         for line in reader.lines() {
-            let line = line?;
-            lines.push(line);
+            lines.push(line.unwrap());
         }
 
         self.textareas.push(TextArea::new(lines));
@@ -58,12 +68,13 @@ impl Editor<'_> {
         Ok(())
     }
 
-    pub fn save(&self) -> io::Result<()> {
+    pub fn save(&self) -> Result<(), VaultError> {
         if self.paths[self.current] != PathBuf::from("vault-tui-intro-buffer") {
-            let mut file = BufWriter::new(File::create(&self.path())?);
+            // TODO: clean unwraps up
+            let mut file = BufWriter::new(File::create(&self.path()).unwrap());
             for line in self.textareas[self.current].lines() {
-                file.write_all(line.as_bytes())?;
-                file.write_all(b"\n")?;
+                file.write_all(line.as_bytes()).unwrap();
+                file.write_all(b"\n").unwrap();
             }
         }
 
