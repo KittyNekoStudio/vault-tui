@@ -171,6 +171,10 @@ impl Vault<'_> {
                 let (row, _) = self.tabs[self.current_tab].textarea().cursor();
                 let lines = self.tabs[self.current_tab].textarea().lines();
 
+                if !lines[row].contains("[[") && !lines[row].contains("]]") {
+                    return Ok(());
+                }
+
                 if lines[row].contains("[[") && !lines[row].contains("]]") {
                     let inner_link = self.render_autocomplete()?;
                     if inner_link == "" {
